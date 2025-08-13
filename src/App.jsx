@@ -18,6 +18,29 @@ export default function App() {
   const [urlapp, setUrlapp] = useState("");
   const [websocketip, setWebsocketip] = useState("");
   const [websocketpuerto, setWebsocketpuerto] = useState("");
+  const [usuario, setUsuario] = useState("");
+  const [contrasena, setContrasena] = useState("");
+  const [ipservidor, setIpServidor] = useState("");
+
+  const [SECRET_KEY, setKey] = useState("");
+  useEffect(() => {
+    invoke('obtener_contrasena_encrypt').then(setKey).catch(console.error);
+  }, []);
+
+
+  // Nuevo estado para checkboxes
+  const [dms, setDms] = useState({
+    quiter: false,
+    star: false
+  });
+
+  const handleDmsChange = (name) => {
+    setDms({
+      quiter: name === "quiter",
+      star: name === "star"
+    });
+  };
+
 
   const RUST_STATUS_URL = "http://127.0.0.1:5201/status";
 
@@ -46,15 +69,46 @@ export default function App() {
       });
   }, []);
 
-  const toggleConfig = () => setShowConfig((v) => !v);
+  useEffect(() => {
+    // Al abrir la config, cargamos desde SQLite
+    if (showConfig) {
+      invoke("obtener_config_sqlite", { key: SECRET_KEY })
+        .then((cfg) => {
+          if (!cfg) return;
+          // cfg.username y cfg.password ya vienen DESCIFRADOS
+          setIpServidor(cfg.ipservidor || cfg.server || "");
+          setUsuario(cfg.username || "");
+          setContrasena(cfg.password || "");
+          setWebsocketpuerto(cfg.puertoagente || "");
+          setDms({
+            quiter: !!cfg.usequiter,
+            star: !!cfg.usestar,
+          });
+        })
+        .catch((e) => console.error("Leer config:", e));
+    }
+  }, [showConfig]);
 
-  const handleGuardar = (e) => {
+  const handleGuardar = async (e) => {
     e.preventDefault();
-    // Aquí podrías persistir en backend/tauri si lo deseas.
-    // Ejemplo (opcional): invoke("guardar_config", { urlapp, websocketip, websocketpuerto })
-    console.log("Configuración guardada:", { urlapp, websocketip, websocketpuerto });
-    setShowConfig(false);
+    try {
+      await invoke("guardar_config_sqlite", {
+        server: ipservidor,
+        username: usuario,
+        password: contrasena,
+        puertoagente: websocketpuerto,
+        usequiter: dms.quiter ? 1 : 0,
+        usestar: dms.star ? 1 : 0,
+        ipservidor: ipservidor,
+        key: SECRET_KEY,
+      });
+      setShowConfig(false);
+    } catch (err) {
+      console.error("Guardar config:", err);
+    }
   };
+
+  const toggleConfig = () => setShowConfig((v) => !v);
 
   return (
     <main className="menu">
@@ -77,12 +131,12 @@ export default function App() {
           {showConfig ? (
             // Flecha volver
             <svg viewBox="0 0 24 24" className="icon">
-              <path d="M20 11H7.83l4.58-4.59L11 5l-7 7 7 7 1.41-1.41L7.83 13H20v-2z"/>
+              <path d="M20 11H7.83l4.58-4.59L11 5l-7 7 7 7 1.41-1.41L7.83 13H20v-2z" />
             </svg>
           ) : (
             // Engranaje
             <svg viewBox="0 0 24 24" className="icon">
-              <path d="M19.14,12.94a7.14,7.14,0,0,0,.05-.94,7.14,7.14,0,0,0-.05-.94l2.11-1.65a.48.48,0,0,0,.11-.62l-2-3.46a.5.5,0,0,0-.6-.22l-2.49,1a7.34,7.34,0,0,0-1.63-.94l-.38-2.65A.49.49,0,0,0,13.77,2H10.23a.49.49,0,0,0-.49.41L9.36,5.06a7.34,7.34,0,0,0-1.63.94l-2.49-1a.5.5,0,0,0-.6.22l-2,3.46a.48.48,0,0,0,.11.62L4.86,11.06a7.14,7.14,0,0,0-.05.94,7.14,7.14,0,0,0,.05.94L2.75,14.59a.48.48,0,0,0-.11.62l2,3.46a.5.5,0,0,0,.6.22l2.49-1a7.34,7.34,0,0,0,1.63.94l.38,2.65a.49.49,0,0,0,.49.41h3.54a.49.49,0,0,0,.49-.41l.38-2.65a7.34,7.34,0,0,0,1.63-.94l2.49,1a.5.5,0,0,0,.6-.22l2-3.46a.48.48,0,0,0-.11-.62ZM12,15.5A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"/>
+              <path d="M19.14,12.94a7.14,7.14,0,0,0,.05-.94,7.14,7.14,0,0,0-.05-.94l2.11-1.65a.48.48,0,0,0,.11-.62l-2-3.46a.5.5,0,0,0-.6-.22l-2.49,1a7.34,7.34,0,0,0-1.63-.94l-.38-2.65A.49.49,0,0,0,13.77,2H10.23a.49.49,0,0,0-.49.41L9.36,5.06a7.34,7.34,0,0,0-1.63.94l-2.49-1a.5.5,0,0,0-.6.22l-2,3.46a.48.48,0,0,0,.11.62L4.86,11.06a7.14,7.14,0,0,0-.05.94,7.14,7.14,0,0,0,.05.94L2.75,14.59a.48.48,0,0,0-.11.62l2,3.46a.5.5,0,0,0,.6.22l2.49-1a7.34,7.34,0,0,0,1.63.94l.38,2.65a.49.49,0,0,0,.49.41h3.54a.49.49,0,0,0,.49-.41l.38-2.65a7.34,7.34,0,0,0,1.63-.94l2.49,1a.5.5,0,0,0,.6-.22l2-3.46a.48.48,0,0,0-.11-.62ZM12,15.5A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z" />
             </svg>
           )}
         </button>
@@ -96,31 +150,7 @@ export default function App() {
           <h2 className="subtitulo">Configuración</h2>
           <form className="form" onSubmit={handleGuardar}>
             <div className="form-group">
-              <label htmlFor="urlapp">URL App</label>
-              <input
-                id="urlapp"
-                type="text"
-                value={urlapp}
-                onChange={(e) => setUrlapp(e.target.value)}
-                placeholder="https://mi-app.com"
-                className="input"
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="websocketip">IP</label>
-              <input
-                id="websocketip"
-                type="text"
-                value={websocketip}
-                onChange={(e) => setWebsocketip(e.target.value)}
-                placeholder="127.0.0.1"
-                className="input"
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="websocketpuerto">Puerto</label>
+              <label htmlFor="websocketpuerto">Puerto Agente</label>
               <input
                 id="websocketpuerto"
                 type="number"
@@ -131,7 +161,62 @@ export default function App() {
                 min="0"
               />
             </div>
-
+            <div className="form-group">
+              <label>DMS</label>
+              <div>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={dms.quiter}
+                    onChange={() => handleDmsChange("quiter")}
+                  />
+                  Quiter
+                </label>
+              </div>
+              <div>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={dms.star}
+                    onChange={() => handleDmsChange("star")}
+                  />
+                  Star
+                </label>
+              </div>
+            </div>
+            <div className="form-group">
+              <label htmlFor="ipservidor">IP Servidor</label>
+              <input
+                id="ipservidor"
+                type="text"
+                value={ipservidor}
+                onChange={(e) => setIpServidor(e.target.value)}
+                placeholder="192.175..."
+                className="input"
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="usuario">Usuario</label>
+              <input
+                id="usuario"
+                type="text"
+                value={usuario}
+                className="input"
+                onChange={(e) => setUsuario(e.target.value)}
+                placeholder="usuario..."
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="constrasena">Contraseña</label>
+              <input
+                id="contrasena"
+                type="password"
+                value={contrasena}
+                className="input"
+                onChange={(e) => setContrasena(e.target.value)}
+                placeholder="*********"
+              />
+            </div>
             <div className="acciones-form">
               <button type="submit" className="btn btn-primary">Guardar</button>
               <button type="button" className="btn" onClick={() => setShowConfig(false)}>

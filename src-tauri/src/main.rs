@@ -45,7 +45,7 @@ use serde_json::json;
 
 // ─── arriba, junto al resto ────────────────────────────────────────────────────
 use chrono::DateTime as ChronoDateTime;
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 
 use axum::http::Method;
 use tower_http::cors::{Any, CorsLayer};
@@ -54,6 +54,166 @@ use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::connect_async;
 use url::Url;
 
+// --- Clave fija para (des)encriptar credenciales (igual que en el otro archivo)
+const ENCRYPT_PASSWORD: &str = "#SynergyaTechÑ2024*";
+
+#[tauri::command]
+fn obtener_contrasena_encrypt() -> String {
+    ENCRYPT_PASSWORD.to_string()
+}
+
+
+// Abre la base de datos ya existente
+fn open_db() -> Result<Connection, String> {
+    if let Ok(conn) = Connection::open("src-tauri/config/config.db") {
+        return Ok(conn);
+    }
+    Connection::open("config/config.db").map_err(|e| e.to_string())
+}
+
+// Reutiliza tus funciones AES-GCM
+fn encrypt_local(plain: &str, key: &str) -> Result<String, String> {
+    Ok(encrypt(plain, key))
+}
+fn decrypt_local(enc_b64: &str, key: &str) -> Result<String, String> {
+    let key = prepare_key(key);
+    let encrypted_data = general_purpose::STANDARD
+        .decode(enc_b64)
+        .map_err(|_| "Base64 inválido".to_string())?;
+
+    let nonce = Nonce::from_slice(&encrypted_data[..12]);
+    let ciphertext = &encrypted_data[12..];
+
+    let cipher = Aes256Gcm::new(&key);
+    let plaintext = cipher
+        .decrypt(nonce, ciphertext.as_ref())
+        .map_err(|_| "Fallo en la desencriptación".to_string())?;
+
+    String::from_utf8(plaintext).map_err(|_| "UTF-8 inválido".to_string())
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ConfigRow {
+    server: String,
+    username: String, // devuelto DESCIFRADO
+    password: String, // devuelto DESCIFRADO
+    puertoagente: String,
+    usequiter: i64,
+    usestar: i64,
+    ipservidor: String,
+}
+
+#[tauri::command]
+fn guardar_config_sqlite(
+    server: String,
+    username: String,
+    password: String,
+    puertoagente: String,
+    usequiter: i64,
+    usestar: i64,
+    ipservidor: String,
+    key: String,
+) -> Result<(), String> {
+    let conn = open_db()?;
+
+    let username_enc = encrypt_local(&username, &key)?;
+    let password_enc = encrypt_local(&password, &key)?;
+
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM ConfigApp", [], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+
+    if count == 0 {
+        // tabla vacía → INSERT
+        conn.execute(
+            "INSERT INTO ConfigApp (server, username, password, puertoagente, usequiter, usestar, ipservidor)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                server,
+                username_enc,
+                password_enc,
+                puertoagente,
+                usequiter,
+                usestar,
+                ipservidor
+            ],
+        ).map_err(|e| e.to_string())?;
+    } else {
+        // ya existe una fila → UPDATE (sin WHERE, afecta a la única fila)
+        conn.execute(
+            "UPDATE ConfigApp SET
+                server       = ?1,
+                username     = ?2,
+                password     = ?3,
+                puertoagente = ?4,
+                usequiter    = ?5,
+                usestar      = ?6,
+                ipservidor   = ?7",
+            params![
+                server,
+                username_enc,
+                password_enc,
+                puertoagente,
+                usequiter,
+                usestar,
+                ipservidor
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn obtener_config_sqlite(key: String) -> Result<ConfigRow, String> {
+    let conn = open_db()?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT server, username, password, puertoagente, usequiter, usestar, ipservidor
+         FROM ConfigApp
+         LIMIT 1",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let row = stmt.query_row([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,                    // server
+            row.get::<_, String>(1)?,                    // username (enc)
+            row.get::<_, String>(2)?,                    // password (enc)
+            row.get::<_, String>(3).unwrap_or_default(), // puertoagente
+            row.get::<_, i64>(4).unwrap_or(0),           // usequiter
+            row.get::<_, i64>(5).unwrap_or(0),           // usestar
+            row.get::<_, String>(6).unwrap_or_default(), // ipservidor
+        ))
+    });
+
+    match row {
+        Ok((server, username_enc, password_enc, puertoagente, usequiter, usestar, ipservidor)) => {
+            let username = decrypt_local(&username_enc, &key)?;
+            let password = decrypt_local(&password_enc, &key)?;
+            Ok(ConfigRow {
+                server,
+                username,
+                password,
+                puertoagente,
+                usequiter,
+                usestar,
+                ipservidor,
+            })
+        }
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(ConfigRow {
+            server: "".into(),
+            username: "".into(),
+            password: "".into(),
+            puertoagente: "".into(),
+            usequiter: 0,
+            usestar: 0,
+            ipservidor: "".into(),
+        }),
+        Err(e) => Err(e.to_string()),
+    }
+}
 
 async fn conectar_ws() {
     let server_url = Url::parse("ws://109.107.116.142:9575/agents").unwrap();
@@ -750,16 +910,6 @@ async fn status_handler() -> impl IntoResponse {
         .into_response()
 }
 
-/// Devuelve `true` si useQAE == 1 en la tabla ConfigApp del SQLite config.db
-fn qae_activado_sync() -> Result<bool, String> {
-    // ←  ahora apuntamos a la sub‑carpeta config/
-    let conn = Connection::open("config/config.db").map_err(|e| e.to_string())?;
-    let valor: i64 = conn
-        .query_row("SELECT useQAE FROM ConfigApp LIMIT 1", [], |row| row.get(0))
-        .map_err(|e| e.to_string())?;
-    Ok(valor == 1)
-}
-
 #[derive(Debug, serde::Deserialize)]
 struct SubirDocOrdenesPayload {
     #[serde(rename = "fileByte")]
@@ -773,100 +923,6 @@ struct SubirDocOrdenesPayload {
     ultimafecha: String,
     // (opcional) si el front lo manda; si no, lo calculamos
     tamano_archivo: Option<i64>,
-}
-
-async fn subir_doc_ordenes_handler(
-    axum::extract::State(backend): axum::extract::State<Arc<Mutex<PythonBackend>>>,
-    axum::Json(payload): axum::Json<SubirDocOrdenesPayload>,
-) -> impl axum::response::IntoResponse {
-    use axum::{http::StatusCode, Json};
-    use serde_json::json;
-
-    /* ─── 1 ░¿QAE activo? – consulta SQLite bloqueante░────────────────────── */
-    let qae_activo = match tokio::task::spawn_blocking(qae_activado_sync).await {
-        Ok(Ok(v)) => v,
-        _ => false, // por seguridad caemos a Mongo ante fallo
-    };
-
-    /* ─── 2‑A ░Envío al backend/DLL cuando QAE = true░────────────────────── */
-    if qae_activo {
-        let parametros = serde_json::json!({
-            "comando":        "insertarDocOrdenes",
-            "fileByte":       payload.file_byte,
-            "filename":       payload.filename,
-            "mimetype":       payload.mimetype,
-            "referenciaDMS":  payload.referencia_dms.clone().unwrap_or_default(),
-            "usuarioDMS":     payload.usuario_dms.clone().unwrap_or_default(),
-            "ultimafecha":    payload.ultimafecha
-        });
-
-        let resp = {
-            let mut bk = backend.lock().unwrap();
-            bk.send_command(&parametros.to_string())
-        };
-
-        // ─── propagamos exactamente el error que devuelva el backend ───
-        return match serde_json::from_str::<serde_json::Value>(&resp) {
-            Ok(json) if json.get("error").is_some() => (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": json["error"] })),
-            )
-                .into_response(),
-            Ok(json) => (StatusCode::OK, Json(json)).into_response(),
-            Err(_) => (StatusCode::BAD_REQUEST, Json(json!({ "error": resp }))).into_response(),
-        };
-    }
-
-    /* ─── 2‑B ░Inserción directa en Mongo cuando QAE = false░──────────────── */
-
-    // 2‑B‑1 decodificamos Base64
-    let file_bytes = match base64::decode(&payload.file_byte) {
-        Ok(b) => b,
-        Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": format!("Base64 inválido: {e}") })),
-            )
-                .into_response()
-        }
-    };
-
-    // 2‑B‑2 parseamos la fecha ISO
-    let fecha_ts = chrono::DateTime::parse_from_rfc3339(&payload.ultimafecha)
-        .map(|dt| dt.timestamp_millis())
-        .ok();
-
-    // 2‑B‑3 llamamos a insertar_documento()
-    let resultado = insertar_documento(
-        /* id_usuario */ 0,
-        /* carpeta     */ "ordenes".into(),
-        /* nombre_arc. */ payload.filename.clone(),
-        /* tipo_archivo*/ detectar_tipo_archivo(&payload.filename),
-        /* mimetype    */ Some(payload.mimetype.clone()),
-        /* fichero_dms */ Some("ordenes".into()),
-        payload.referencia_dms.clone(),
-        payload.usuario_dms.clone(),
-        fecha_ts,
-        /* id_orden    */ None,
-        /* id_vehiculo */ None,
-        /* id_cliente  */ None,
-        file_bytes.clone(),
-        payload.tamano_archivo.unwrap_or(file_bytes.len() as i64),
-    )
-    .await;
-
-    // ─── propagamos resultado tal cual ───
-    match resultado {
-        Ok(()) => (
-            StatusCode::OK,
-            Json(json!({ "status": "Documento insertado en MongoDB" })),
-        ),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": e })), // e llega tal cual
-        ),
-    }
-    .into_response()
 }
 
 // ============ MAIN TAURI ============
@@ -940,7 +996,6 @@ async fn main() {
                         .route("/api", post(api_handler))
                         .route("/status", get(status_handler))
                         .route("/insertarDocumento", post(insertar_documento_handler))
-                        .route("/InsertarDocumentoBackend", post(subir_doc_ordenes_handler))
                         .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
                         .layer(cors)
                         .with_state(backend_clone);
@@ -983,7 +1038,9 @@ async fn main() {
             encrypt,
             decrypt,
             call_api_cargar_doc_ordenes_backend,
-            call_express_status
+            call_express_status,
+            guardar_config_sqlite,
+            obtener_config_sqlite
         ])
         .run(tauri::generate_context!())
         .expect("Error al ejecutar la aplicación Tauri");

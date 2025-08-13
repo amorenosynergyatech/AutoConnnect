@@ -34,8 +34,8 @@
       {
         "fullscreen": false,
         "title": "Autocontact IA Connector",
-        "width": 420,
-        "height": 480,
+        "width": 500,
+        "height": 600,
         "visible": false,
         "resizable": false
       }

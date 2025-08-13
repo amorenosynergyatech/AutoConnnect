@@ -54,6 +54,7 @@ use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::connect_async;
 use url::Url;
 
+
 async fn conectar_ws() {
     let server_url = Url::parse("ws://109.107.116.142:9575/agents").unwrap();
     loop {
@@ -62,11 +63,9 @@ async fn conectar_ws() {
             Ok((mut ws_stream, _)) => {
                 println!("Conexión WS establecida");
 
-                // Registrar agente
+                // Registrar agente sin device_id ni site_id
                 let registro = serde_json::json!({
-                    "type": "register",
-                    "device_id": "mi_device_123",
-                    "site_id": "site_001"
+                    "type": "register"
                 });
                 ws_stream
                     .send(tokio_tungstenite::tungstenite::Message::Text(

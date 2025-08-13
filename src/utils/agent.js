@@ -3,7 +3,7 @@ import WebSocket from 'ws';
 import crypto from 'crypto';
 import cors from 'cors';
 
-const BACKEND_WS_URL = process.env.WS_URL || 'wss://ws://109.107.116.142:9575/agents';
+const BACKEND_WS_URL = process.env.WS_URL || 'ws://109.107.116.142:9575/agents';
 const SITE_ID = process.env.SITE_ID || 'default-site';
 const DEVICE_ID = process.env.DEVICE_ID || crypto.randomUUID();
 

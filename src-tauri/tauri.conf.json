@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/1",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devPath": "http://localhost:1420",
+    "distDir": "../dist"
+  },
+  "package": {
+    "productName": "Autocontact IA Connector",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "bundle": {
+      "active": true,
+      "targets": "all",
+      "identifier": "com.businessconnect.app",
+      "icon": [
+        "icons/icon.icns",
+        "icons/icon.ico",
+        "icons/32x32.png",
+        "icons/128x128.png",
+        "icons/128x128@2x.png"
+      ]
+    },
+    "systemTray": {
+      "iconPath": "icons/icon.ico",
+      "iconAsTemplate": true
+    },
+    "security": {
+      "csp": null
+    },
+    "windows": [
+      {
+        "fullscreen": false,
+        "title": "Autocontact IA Connector",
+        "width": 420,
+        "height": 480,
+        "visible": false,
+        "resizable": false
+      }
+    ]
+  }
+}

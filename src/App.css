@@ -1,0 +1,185 @@
+/* Layout general */
+.menu {
+  max-width: 380px;
+  margin: 0 auto;
+  padding: 1.5rem;
+  font-family: system-ui, sans-serif;
+  color: #333;
+}
+
+/* Cabecera */
+.cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* separa logo+título de botón */
+  margin-bottom: 1rem;
+}
+
+
+/* Logo (sin borde, 40 px) */
+.logo {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.logo__img {
+  width: 65%;
+  height: 65%;
+  object-fit: contain;
+}
+
+/* Título perfectamente alineado con el icono */
+.titulo {
+  font-size: 1.35rem;
+  font-weight: 600;
+  margin: 0;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+}
+
+/* Botón de configuración arriba a la derecha */
+/* Botón de configuración arriba a la derecha */
+.config-btn {
+  margin-left: 1.5rem;
+  /* antes era auto; da más espacio desde el título */
+  margin-right: 0;
+  /* opcional, por si quieres ajustarlo al borde derecho */
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d0d0d0;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  transition: transform .08s ease, box-shadow .12s ease, background .12s ease;
+}
+
+
+.config-btn:hover {
+  box-shadow: 0 1px 6px rgba(0, 0, 0, .08);
+}
+
+.config-btn:active {
+  transform: scale(0.98);
+}
+
+.config-btn .icon {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  color: #333;
+}
+
+/* Línea divisoria */
+.divider {
+  margin: 0.75rem 0 1.25rem 0;
+  border: none;
+  border-top: 1px solid #d0d0d0;
+}
+
+/* Sección Estado */
+.estado {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.estado__label {
+  font-size: 1.1rem;
+  margin-right: 0.25rem;
+}
+
+.estado__indicador {
+  width: 14px;
+  height: 14px;
+  border-radius: 100%;
+  border: 1px solid #777;
+}
+
+.estado__select {
+  border: 1px solid #bbb;
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.95rem;
+  background: #fff;
+}
+
+/* Pantalla de configuración */
+.config .subtitulo {
+  font-size: 1.05rem;
+  margin: 0 0 0.75rem 0;
+  font-weight: 600;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.input {
+  border: 1px solid #bbb;
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+  font-size: 0.95rem;
+  outline: none;
+}
+
+.input:focus {
+  border-color: #999;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.05);
+}
+
+.acciones-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.btn {
+  border: 1px solid #bbb;
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: #fafafa;
+}
+
+.btn-primary {
+  border-color: #0ea5e9;
+  background: #0ea5e9;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #0891b2;
+}
+
+/* Centrar el <main> vertical y horizontal respecto a la ventana */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

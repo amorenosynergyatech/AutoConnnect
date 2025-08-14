@@ -112,6 +112,23 @@
   background: #fff;
 }
 
+.estado__wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+.estado__indicador {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.estado__texto {
+  font-weight: 600;
+}
+
 /* Pantalla de configuración */
 .config .subtitulo {
   font-size: 1.05rem;

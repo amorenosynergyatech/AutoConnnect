@@ -27,6 +27,12 @@ export default function App() {
     invoke('obtener_contrasena_encrypt').then(setKey).catch(console.error);
   }, []);
 
+  // 1) Añade este diccionario junto a "colores"
+  const etiquetas = {
+    rojo: "Desconectado",
+    naranja: "Intentando",
+    verde: "Conectado",
+  };
 
   // Nuevo estado para checkboxes
   const [dms, setDms] = useState({
@@ -70,24 +76,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Al abrir la config, cargamos desde SQLite
-    if (showConfig) {
+    if (showConfig && SECRET_KEY) {
       invoke("obtener_config_sqlite", { key: SECRET_KEY })
-        .then((cfg) => {
+        .then(cfg => {
           if (!cfg) return;
-          // cfg.username y cfg.password ya vienen DESCIFRADOS
           setIpServidor(cfg.ipservidor || cfg.server || "");
-          setUsuario(cfg.username || "");
-          setContrasena(cfg.password || "");
+          setUsuario(cfg.username || "");   // ← ya viene DESCIFRADO
+          setContrasena(cfg.password || ""); // ← ya viene DESCIFRADO
           setWebsocketpuerto(cfg.puertoagente || "");
-          setDms({
-            quiter: !!cfg.usequiter,
-            star: !!cfg.usestar,
-          });
+          setDms({ quiter: !!cfg.usequiter, star: !!cfg.usestar });
         })
-        .catch((e) => console.error("Leer config:", e));
+        .catch(e => console.error("Leer config:", e));
     }
-  }, [showConfig]);
+  }, [showConfig, SECRET_KEY]); // ← añade SECRET_KEY aquí
 
   const handleGuardar = async (e) => {
     e.preventDefault();
@@ -227,13 +228,20 @@ export default function App() {
         </section>
       ) : (
         /* PANTALLA DE ESTADO */
+        // 2) Sustituye la sección de ESTADO por esta versión con el texto al lado
         <section className="estado">
-          <span className="estado__label">Estado</span>
-          <span
-            className="estado__indicador"
-            style={{ backgroundColor: colores[estado] }}
-          />
+          <span className="estado__label">Estado:</span>
+          <div className="estado__wrap">
+            <span
+              className="estado__indicador"
+              style={{ backgroundColor: colores[estado] }}
+              aria-label={etiquetas[estado]}
+              title={etiquetas[estado]}
+            />
+            <span className="estado__texto">{etiquetas[estado]}</span>
+          </div>
         </section>
+
       )}
     </main>
   );

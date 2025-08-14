@@ -62,7 +62,6 @@ fn obtener_contrasena_encrypt() -> String {
     ENCRYPT_PASSWORD.to_string()
 }
 
-
 // Abre la base de datos ya existente
 fn open_db() -> Result<Connection, String> {
     if let Ok(conn) = Connection::open("src-tauri/config/config.db") {
@@ -114,8 +113,13 @@ fn guardar_config_sqlite(
     ipservidor: String,
     key: String,
 ) -> Result<(), String> {
+    if key.is_empty() {
+        return Err("Clave de cifrado vacía".into());
+    }
+
     let conn = open_db()?;
 
+    // Cifrado antes de persistir
     let username_enc = encrypt_local(&username, &key)?;
     let password_enc = encrypt_local(&password, &key)?;
 
@@ -124,7 +128,6 @@ fn guardar_config_sqlite(
         .map_err(|e| e.to_string())?;
 
     if count == 0 {
-        // tabla vacía → INSERT
         conn.execute(
             "INSERT INTO ConfigApp (server, username, password, puertoagente, usequiter, usestar, ipservidor)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -137,9 +140,9 @@ fn guardar_config_sqlite(
                 usestar,
                 ipservidor
             ],
-        ).map_err(|e| e.to_string())?;
+        )
+        .map_err(|e| e.to_string())?;
     } else {
-        // ya existe una fila → UPDATE (sin WHERE, afecta a la única fila)
         conn.execute(
             "UPDATE ConfigApp SET
                 server       = ?1,
@@ -171,16 +174,16 @@ fn obtener_config_sqlite(key: String) -> Result<ConfigRow, String> {
     let mut stmt = conn
         .prepare(
             "SELECT server, username, password, puertoagente, usequiter, usestar, ipservidor
-         FROM ConfigApp
-         LIMIT 1",
+             FROM ConfigApp
+             LIMIT 1",
         )
         .map_err(|e| e.to_string())?;
 
     let row = stmt.query_row([], |row| {
         Ok((
             row.get::<_, String>(0)?,                    // server
-            row.get::<_, String>(1)?,                    // username (enc)
-            row.get::<_, String>(2)?,                    // password (enc)
+            row.get::<_, String>(1)?,                    // username (cifrado o plano)
+            row.get::<_, String>(2)?,                    // password (cifrado o plano)
             row.get::<_, String>(3).unwrap_or_default(), // puertoagente
             row.get::<_, i64>(4).unwrap_or(0),           // usequiter
             row.get::<_, i64>(5).unwrap_or(0),           // usestar
@@ -190,8 +193,11 @@ fn obtener_config_sqlite(key: String) -> Result<ConfigRow, String> {
 
     match row {
         Ok((server, username_enc, password_enc, puertoagente, usequiter, usestar, ipservidor)) => {
-            let username = decrypt_local(&username_enc, &key)?;
-            let password = decrypt_local(&password_enc, &key)?;
+            // Intentamos descifrar; si falla, asumimos que estaba en plano
+            let username =
+                decrypt_local(&username_enc, &key).unwrap_or_else(|_| username_enc.clone());
+            let password =
+                decrypt_local(&password_enc, &key).unwrap_or_else(|_| password_enc.clone());
             Ok(ConfigRow {
                 server,
                 username,
@@ -886,16 +892,41 @@ async fn api_handler(
     State(backend): State<Arc<Mutex<PythonBackend>>>,
     Json(payload): Json<ApiRequest>,
 ) -> impl IntoResponse {
+    println!("[api_handler] Payload recibido del cliente:");
+    println!("  command: {}", payload.command);
+    println!(
+        "  data: {}",
+        payload
+            .data
+            .as_ref()
+            .map(|d| d.to_string())
+            .unwrap_or_else(|| "null".to_string())
+    );
+
+    println!(
+        "[api_handler] Enviando al backend Python/DLL: {}",
+        payload.command
+    );
     let mut backend = backend.lock().unwrap();
     let response = backend.send_command(&payload.command);
 
+    println!("[api_handler] Respuesta cruda recibida del backend:");
+    println!("  {}", response);
+
+    // 🔹 4) Intentar parsear y responder al cliente
     match serde_json::from_str::<serde_json::Value>(&response) {
-        Ok(json_response) => (StatusCode::OK, Json(json_response)).into_response(),
-        Err(_) => (
-            StatusCode::OK,
-            Json(serde_json::json!({ "response": response })),
-        )
-            .into_response(),
+        Ok(json_response) => {
+            println!("[api_handler] Respuesta parseada como JSON OK");
+            (StatusCode::OK, Json(json_response)).into_response()
+        }
+        Err(_) => {
+            println!("[api_handler] Respuesta NO es JSON válido, devolviendo crudo");
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({ "response": response })),
+            )
+                .into_response()
+        }
     }
 }
 
@@ -1040,7 +1071,8 @@ async fn main() {
             call_api_cargar_doc_ordenes_backend,
             call_express_status,
             guardar_config_sqlite,
-            obtener_config_sqlite
+            obtener_config_sqlite,
+            obtener_contrasena_encrypt,
         ])
         .run(tauri::generate_context!())
         .expect("Error al ejecutar la aplicación Tauri");

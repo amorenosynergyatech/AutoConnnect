@@ -993,6 +993,12 @@ async fn main() {
             },
             _ => {}
         })
+        .on_window_event(|event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event.event() {
+                event.window().hide().unwrap();
+                api.prevent_close();
+            }
+        })
         // Capturamos `port` por valor para usarlo más abajo
         .setup(move |app| {
             let app_handle = app.handle();
@@ -1047,8 +1053,8 @@ async fn main() {
             let backend_for_call = python_backend.clone();
             tauri::async_runtime::spawn(async move {
                 match call_api_cargar_doc_ordenes(backend_for_call).await {
-                    Ok(result) => println!("call_api_cargar_doc_ordenes result: {}", result),
-                    Err(err) => println!("call_api_cargar_doc_ordenes error: {}", err),
+                    Ok(result) => println!(""),
+                    Err(err) => println!(""),
                 }
             });
 

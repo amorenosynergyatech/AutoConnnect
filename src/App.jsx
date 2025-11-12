@@ -62,8 +62,10 @@ export default function App() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
       })
-      .then(() => invoke("call_api_cargar_doc_ordenes_backend"))
-      .then(() => setEstado("verde"))
+      .then(() => {
+        // ✅ Si Rust responde, ya lo marcamos como conectado
+        setEstado("verde");
+      })
       .catch((err) => {
         clearTimeout(timeoutId);
         console.error("[Estado Rust]", err.name, err.message);
@@ -73,6 +75,7 @@ export default function App() {
           setEstado("rojo");
         }
       });
+
   }, []);
 
   useEffect(() => {

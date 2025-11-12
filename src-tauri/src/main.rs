@@ -51,6 +51,7 @@ use axum::http::Method;
 use tower_http::cors::{Any, CorsLayer};
 
 use futures_util::{SinkExt, StreamExt};
+use tauri::api::path::app_config_dir;
 use tokio_tungstenite::connect_async;
 use url::Url;
 
@@ -62,12 +63,35 @@ fn obtener_contrasena_encrypt() -> String {
     ENCRYPT_PASSWORD.to_string()
 }
 
-// Abre la base de datos ya existente
 fn open_db() -> Result<Connection, String> {
-    if let Ok(conn) = Connection::open("src-tauri/config/config.db") {
-        return Ok(conn);
-    }
-    Connection::open("config/config.db").map_err(|e| e.to_string())
+    // Obtiene el directorio persistente de configuración de Tauri
+    let base_path = app_config_dir(&tauri::Config::default())
+        .unwrap_or_else(|| std::env::current_dir().unwrap());
+
+    // Asegura que la carpeta exista
+    std::fs::create_dir_all(&base_path).map_err(|e| e.to_string())?;
+
+    let db_path = base_path.join("config.db");
+
+    println!("📁 Usando base de datos: {:?}", db_path);
+
+    // Crea la DB y la tabla si no existe
+    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS ConfigApp (
+            server TEXT,
+            username TEXT,
+            password TEXT,
+            puertoagente TEXT,
+            usequiter INTEGER,
+            usestar INTEGER,
+            ipservidor TEXT
+        )",
+        [],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(conn)
 }
 
 // Reutiliza tus funciones AES-GCM

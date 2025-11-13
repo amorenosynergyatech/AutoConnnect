@@ -50,10 +50,8 @@ use rusqlite::{params, Connection};
 use axum::http::Method;
 use tower_http::cors::{Any, CorsLayer};
 
-use futures_util::{SinkExt, StreamExt};
 use tauri::api::path::app_config_dir;
-use tokio_tungstenite::connect_async;
-use url::Url;
+
 
 // --- Clave fija para (des)encriptar credenciales (igual que en el otro archivo)
 const ENCRYPT_PASSWORD: &str = "#SynergyaTechÑ2024*";
@@ -242,73 +240,6 @@ fn obtener_config_sqlite(key: String) -> Result<ConfigRow, String> {
             ipservidor: "".into(),
         }),
         Err(e) => Err(e.to_string()),
-    }
-}
-
-async fn conectar_ws() {
-    let server_url = Url::parse("ws://109.107.116.142:9575/agents").unwrap();
-    loop {
-        println!("Conectando al servidor WS...");
-        match connect_async(server_url.clone()).await {
-            Ok((mut ws_stream, _)) => {
-                println!("Conexión WS establecida");
-
-                // Registrar agente sin device_id ni site_id
-                let registro = serde_json::json!({
-                    "type": "register"
-                });
-                ws_stream
-                    .send(tokio_tungstenite::tungstenite::Message::Text(
-                        registro.to_string(),
-                    ))
-                    .await
-                    .unwrap();
-
-                while let Some(msg) = ws_stream.next().await {
-                    match msg {
-                        Ok(tokio_tungstenite::tungstenite::Message::Text(txt)) => {
-                            println!("Mensaje WS recibido: {}", txt);
-
-                            // Parsear el JSON entrante
-                            if let Ok(json_msg) = serde_json::from_str::<serde_json::Value>(&txt) {
-                                if json_msg.get("type")
-                                    == Some(&serde_json::Value::String("task".to_string()))
-                                {
-                                    let action = json_msg["action"].as_str().unwrap_or("");
-                                    println!("Tarea recibida: {}", action);
-
-                                    // Preparar respuesta
-                                    let respuesta = serde_json::json!({
-                                        "type": "task_result",
-                                        "task_id": json_msg["task_id"],
-                                        "ok": true,
-                                        "result": format!("Tarea '{}' procesada por el agente", action)
-                                    });
-
-                                    // Enviar la respuesta al backend
-                                    ws_stream
-                                        .send(tokio_tungstenite::tungstenite::Message::Text(
-                                            respuesta.to_string(),
-                                        ))
-                                        .await
-                                        .unwrap();
-                                }
-                            }
-                        }
-                        Ok(_) => {}
-                        Err(e) => {
-                            println!("Error en WS: {}", e);
-                            break;
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                println!("Error conectando WS: {}", e);
-            }
-        }
-        println!("Reintentando conexión WS en 5s...");
-        sleep(Duration::from_secs(5)).await;
     }
 }
 
@@ -1034,11 +965,6 @@ async fn main() {
             // Programamos la eliminación de uopy.ini tras 3 segundos
             tauri::async_runtime::spawn(async {
                 delete_uopy_ini().await;
-            });
-
-            // 🔹 Lanzamos el WebSocket hacia la app
-            tauri::async_runtime::spawn(async {
-                conectar_ws().await;
             });
 
             // Iniciamos el servidor HTTP de Axum en segundo plano

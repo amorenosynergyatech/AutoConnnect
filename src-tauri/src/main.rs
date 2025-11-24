@@ -1,6 +1,6 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 // LA LINEA SIGUIENTE SI ESTA COMENTADA APARECE LA CONSOLA
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+//#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use aes_gcm::AeadCore;
 use aes_gcm::{
@@ -52,7 +52,6 @@ use tower_http::cors::{Any, CorsLayer};
 
 use tauri::api::path::app_config_dir;
 
-
 // --- Clave fija para (des)encriptar credenciales (igual que en el otro archivo)
 const ENCRYPT_PASSWORD: &str = "#SynergyaTechÑ2024*";
 
@@ -61,20 +60,28 @@ fn obtener_contrasena_encrypt() -> String {
     ENCRYPT_PASSWORD.to_string()
 }
 
-fn open_db() -> Result<Connection, String> {
-    // Obtiene el directorio persistente de configuración de Tauri
-    let base_path = app_config_dir(&tauri::Config::default())
-        .unwrap_or_else(|| std::env::current_dir().unwrap());
+fn get_install_config_dir() -> PathBuf {
+    let exe_dir = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
 
-    // Asegura que la carpeta exista
+    exe_dir.join("config")
+}
+
+fn open_db() -> Result<Connection, String> {
+    let base_path = get_install_config_dir();
+
+    // Crear carpeta si no existe
     std::fs::create_dir_all(&base_path).map_err(|e| e.to_string())?;
 
     let db_path = base_path.join("config.db");
 
     println!("📁 Usando base de datos: {:?}", db_path);
 
-    // Crea la DB y la tabla si no existe
     let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+
     conn.execute(
         "CREATE TABLE IF NOT EXISTS ConfigApp (
             server TEXT,
@@ -896,6 +903,22 @@ async fn status_handler() -> impl IntoResponse {
         .into_response()
 }
 
+async fn test_call_backend(backend: Arc<Mutex<PythonBackend>>) {
+    let test_data = serde_json::json!({
+        "comando": "consultaCampanaSTAR",
+        "SQL": "SELECT * FROM TBL_ProductionOrderRegistry WHERE TRY_CAST(TBL_ProductionOrderRegistry.FLD_DailyCloseDate AS date) BETWEEN '2022-02-08' AND '2022-12-31'"
+    });
+
+    let input_json = test_data.to_string();
+
+    println!("[TEST] Enviando al backend:\n{}", input_json);
+
+    let mut backend = backend.lock().unwrap();
+    let response = backend.send_command(&input_json);
+
+    println!("[TEST] Respuesta recibida:\n{}", response);
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct SubirDocOrdenesPayload {
     #[serde(rename = "fileByte")]
@@ -917,12 +940,16 @@ async fn main() {
     // 1) Creamos uopy.ini antes de iniciar
     create_uopy_ini().await;
 
-    // 2) Carga la configuración desde el INI
+    let config_path = get_install_config_dir().join("config.cfg");
+
+    // Convertir Cow<'_, str> → String → &str
+    let config_path_str = config_path.to_string_lossy().to_string();
+
     let settings = Config::builder()
-        .add_source(File::new("config/config.cfg", FileFormat::Ini).required(true))
+        .add_source(File::new(&config_path_str, FileFormat::Ini).required(true))
         .build()
         .expect("No se pudo leer config.cfg");
-    // 3) Obtén el puerto (u16), con fallback a 8080 si no existe o está mal
+
     let port: u16 = settings.get::<u16>("appSettings.port").unwrap_or(8080);
 
     // 4) Definimos el menú del system tray
@@ -958,16 +985,22 @@ async fn main() {
         .setup(move |app| {
             let app_handle = app.handle();
 
-            // Inicializamos el backend Python y lo guardamos como estado
+            // Inicializamos el backend
             let python_backend = Arc::new(Mutex::new(PythonBackend::new(&app_handle)));
             app.manage(python_backend.clone());
+
+            // === TEST: consultaCampanaSTAR ===
+            let backend_test = python_backend.clone();
+            tauri::async_runtime::spawn(async move {
+                test_call_backend(backend_test).await;
+            });
 
             // Programamos la eliminación de uopy.ini tras 3 segundos
             tauri::async_runtime::spawn(async {
                 delete_uopy_ini().await;
             });
 
-            // Iniciamos el servidor HTTP de Axum en segundo plano
+            // Iniciar servidor AXUM...
             let backend_clone = python_backend.clone();
             tauri::async_runtime::spawn({
                 let port = port;

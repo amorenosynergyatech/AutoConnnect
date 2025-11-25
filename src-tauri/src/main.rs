@@ -1,6 +1,6 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 // LA LINEA SIGUIENTE SI ESTA COMENTADA APARECE LA CONSOLA
-//#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use aes_gcm::AeadCore;
 use aes_gcm::{

@@ -7,6 +7,7 @@ use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
     Aes256Gcm, Key, Nonce,
 };
+
 use base64::{engine::general_purpose, Engine as _};
 use bson::Document; // Ensure this is at the top of your file
 use config::{Config, File, FileFormat};
@@ -123,12 +124,11 @@ fn decrypt_local(enc_b64: &str, key: &str) -> Result<String, String> {
 #[derive(Debug, Serialize, Deserialize)]
 struct ConfigRow {
     server: String,
-    username: String, // devuelto DESCIFRADO
-    password: String, // devuelto DESCIFRADO
+    username: String,
+    password: String,
     puertoagente: String,
     usequiter: i64,
     usestar: i64,
-    ipservidor: String,
 }
 
 #[tauri::command]
@@ -139,7 +139,6 @@ fn guardar_config_sqlite(
     puertoagente: String,
     usequiter: i64,
     usestar: i64,
-    ipservidor: String,
     key: String,
 ) -> Result<(), String> {
     if key.is_empty() {
@@ -148,7 +147,6 @@ fn guardar_config_sqlite(
 
     let conn = open_db()?;
 
-    // Cifrado antes de persistir
     let username_enc = encrypt_local(&username, &key)?;
     let password_enc = encrypt_local(&password, &key)?;
 
@@ -158,16 +156,15 @@ fn guardar_config_sqlite(
 
     if count == 0 {
         conn.execute(
-            "INSERT INTO ConfigApp (server, username, password, puertoagente, usequiter, usestar, ipservidor)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO ConfigApp (server, username, password, puertoagente, usequiter, usestar)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 server,
                 username_enc,
                 password_enc,
                 puertoagente,
                 usequiter,
-                usestar,
-                ipservidor
+                usestar
             ],
         )
         .map_err(|e| e.to_string())?;
@@ -179,20 +176,19 @@ fn guardar_config_sqlite(
                 password     = ?3,
                 puertoagente = ?4,
                 usequiter    = ?5,
-                usestar      = ?6,
-                ipservidor   = ?7",
+                usestar      = ?6",
             params![
                 server,
                 username_enc,
                 password_enc,
                 puertoagente,
                 usequiter,
-                usestar,
-                ipservidor
+                usestar
             ],
         )
         .map_err(|e| e.to_string())?;
     }
+
     Ok(())
 }
 
@@ -202,31 +198,29 @@ fn obtener_config_sqlite(key: String) -> Result<ConfigRow, String> {
 
     let mut stmt = conn
         .prepare(
-            "SELECT server, username, password, puertoagente, usequiter, usestar, ipservidor
-             FROM ConfigApp
-             LIMIT 1",
+            "SELECT server, username, password, puertoagente, usequiter, usestar 
+         FROM ConfigApp LIMIT 1",
         )
         .map_err(|e| e.to_string())?;
 
     let row = stmt.query_row([], |row| {
         Ok((
             row.get::<_, String>(0)?,                    // server
-            row.get::<_, String>(1)?,                    // username (cifrado o plano)
-            row.get::<_, String>(2)?,                    // password (cifrado o plano)
+            row.get::<_, String>(1)?,                    // username
+            row.get::<_, String>(2)?,                    // password
             row.get::<_, String>(3).unwrap_or_default(), // puertoagente
-            row.get::<_, i64>(4).unwrap_or(0),           // usequiter
-            row.get::<_, i64>(5).unwrap_or(0),           // usestar
-            row.get::<_, String>(6).unwrap_or_default(), // ipservidor
+            row.get::<_, i64>(4).unwrap_or(0),
+            row.get::<_, i64>(5).unwrap_or(0),
         ))
     });
 
     match row {
-        Ok((server, username_enc, password_enc, puertoagente, usequiter, usestar, ipservidor)) => {
-            // Intentamos descifrar; si falla, asumimos que estaba en plano
+        Ok((server, username_enc, password_enc, puertoagente, usequiter, usestar)) => {
             let username =
                 decrypt_local(&username_enc, &key).unwrap_or_else(|_| username_enc.clone());
             let password =
                 decrypt_local(&password_enc, &key).unwrap_or_else(|_| password_enc.clone());
+
             Ok(ConfigRow {
                 server,
                 username,
@@ -234,7 +228,6 @@ fn obtener_config_sqlite(key: String) -> Result<ConfigRow, String> {
                 puertoagente,
                 usequiter,
                 usestar,
-                ipservidor,
             })
         }
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(ConfigRow {
@@ -244,7 +237,6 @@ fn obtener_config_sqlite(key: String) -> Result<ConfigRow, String> {
             puertoagente: "".into(),
             usequiter: 0,
             usestar: 0,
-            ipservidor: "".into(),
         }),
         Err(e) => Err(e.to_string()),
     }

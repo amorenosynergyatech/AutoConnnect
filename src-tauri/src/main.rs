@@ -898,7 +898,7 @@ async fn status_handler() -> impl IntoResponse {
 async fn test_call_backend(backend: Arc<Mutex<PythonBackend>>) {
     let test_data = serde_json::json!({
         "comando": "consultaCampanaSTAR",
-        "SQL": "SELECT * FROM TBL_ProductionOrderRegistry WHERE TRY_CAST(TBL_ProductionOrderRegistry.FLD_DailyCloseDate AS date) BETWEEN '2022-02-08' AND '2022-12-31'"
+        "SQL": "SELECT * FROM TBL_ProductionOrderRegistry WHERE CAST(TBL_ProductionOrderRegistry.FLD_DailyCloseDate AS date) BETWEEN '2022-02-08' AND '2022-12-31'"
     });
 
     let input_json = test_data.to_string();
@@ -910,6 +910,29 @@ async fn test_call_backend(backend: Arc<Mutex<PythonBackend>>) {
 
     println!("[TEST] Respuesta recibida:\n{}", response);
 }
+
+async fn get_config_autoconnect() -> impl IntoResponse {
+    let key = ENCRYPT_PASSWORD.to_string();
+
+    match obtener_config_sqlite(key) {
+        Ok(cfg) => (
+            StatusCode::OK,
+            Json(json!({
+                "server": cfg.server,
+                "username": cfg.username,
+                "password": cfg.password,
+                "puertoagente": cfg.puertoagente,
+                "usequiter": cfg.usequiter,
+                "usestar": cfg.usestar,
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        ),
+    }
+}
+
 
 #[derive(Debug, serde::Deserialize)]
 struct SubirDocOrdenesPayload {
@@ -1008,6 +1031,7 @@ async fn main() {
                         .route("/api", post(api_handler))
                         .route("/status", get(status_handler))
                         .route("/insertarDocumento", post(insertar_documento_handler))
+                        .route("/get_config_autoconnect", get(get_config_autoconnect))
                         .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
                         .layer(cors)
                         .with_state(backend_clone);

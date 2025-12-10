@@ -172,6 +172,37 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
+name = "autoconnect"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "axum",
+ "base64 0.21.7",
+ "bson",
+ "chrono",
+ "config",
+ "futures",
+ "futures-util",
+ "image",
+ "imageproc",
+ "mime_guess",
+ "mongodb",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tokio",
+ "tokio-tungstenite",
+ "tower-http",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "axum"
 version = "0.6.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -357,37 +388,6 @@ name = "bumpalo"
 version = "3.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "46c5e41b57b8bba42a04676d81cb89e9ee8e859a1a66f80a5a72e1cb76b34d43"
-
-[[package]]
-name = "businessconnect"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "axum",
- "base64 0.21.7",
- "bson",
- "chrono",
- "config",
- "futures",
- "futures-util",
- "image",
- "imageproc",
- "mime_guess",
- "mongodb",
- "reqwest",
- "rusqlite",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tokio",
- "tokio-tungstenite",
- "tower-http",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "url",
-]
 
 [[package]]
 name = "bytemuck"

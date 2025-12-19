@@ -35,6 +35,7 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use tauri::{CustomMenuItem, Manager, SystemTray, SystemTrayEvent, SystemTrayMenu};
 use tokio::fs;
+use std::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 use tokio::time::{sleep, Duration};
 
@@ -59,6 +60,21 @@ const ENCRYPT_PASSWORD: &str = "#SynergyaTechÑ2024*";
 #[tauri::command]
 fn obtener_contrasena_encrypt() -> String {
     ENCRYPT_PASSWORD.to_string()
+}
+
+fn log_boot(msg: &str) {
+    if let Ok(mut f) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("C:\\temp\\autoconnect_boot.log")
+    {
+        let _ = writeln!(
+            f,
+            "[{:?}] {}",
+            std::time::SystemTime::now(),
+            msg
+        );
+    }
 }
 
 fn get_install_config_dir() -> PathBuf {
@@ -933,7 +949,6 @@ async fn get_config_autoconnect() -> impl IntoResponse {
     }
 }
 
-
 #[derive(Debug, serde::Deserialize)]
 struct SubirDocOrdenesPayload {
     #[serde(rename = "fileByte")]
@@ -949,9 +964,43 @@ struct SubirDocOrdenesPayload {
     tamano_archivo: Option<i64>,
 }
 
+#[cfg(target_os = "windows")]
+fn enable_autostart_windows(app_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use std::env;
+    use winreg::enums::*;
+    use winreg::RegKey;
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+
+    // 🔥 Crea la clave si no existe
+    let (run, _) = hkcu.create_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run")?;
+
+    let exe_path = env::current_exe()?;
+
+    // 🔥 FORZAR COMILLAS (CRÍTICO)
+    let quoted = format!("\"{}\"", exe_path.to_string_lossy());
+
+    run.set_value(app_name, &quoted)?;
+
+    Ok(())
+}
+
 // ============ MAIN TAURI ============
 #[tokio::main]
 async fn main() {
+
+    #[cfg(target_os = "windows")]
+{
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let _ = std::env::set_current_dir(dir);
+        }
+    }
+}
+
+
+    log_boot("main() iniciado");
+
     // 1) Creamos uopy.ini antes de iniciar
     create_uopy_ini().await;
 
@@ -973,6 +1022,7 @@ async fn main() {
     let tray_menu = SystemTrayMenu::new().add_item(config).add_item(quit);
     let tray = SystemTray::new().with_menu(tray_menu);
 
+    log_boot("Builder a punto de arrancar");
     tauri::Builder::default()
         .system_tray(tray)
         .on_system_tray_event(|app, event| match event {
@@ -998,10 +1048,21 @@ async fn main() {
         })
         // Capturamos `port` por valor para usarlo más abajo
         .setup(move |app| {
-            let app_handle = app.handle();
+                log_boot("setup() ejecutado");
+            #[cfg(target_os = "windows")]
+            {
+                if let Err(e) = enable_autostart_windows("Autoconnect") {
+                    eprintln!("No se pudo activar autostart: {e}");
+                }
+            }
 
+            let app_handle = app.handle();
             // Inicializamos el backend
+            log_boot("Antes de PythonBackend::new");
+
             let python_backend = Arc::new(Mutex::new(PythonBackend::new(&app_handle)));
+            log_boot("PythonBackend inicializado");
+
             app.manage(python_backend.clone());
 
             // === TEST: consultaCampanaSTAR ===
@@ -1057,9 +1118,13 @@ async fn main() {
                 }
             });
 
-            if let Some(window) = app.get_window("main") {
-                window.hide().unwrap();
-            }
+            let app_handle_clone = app.handle();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                if let Some(window) = app_handle_clone.get_window("main") {
+                    let _ = window.hide();
+                }
+            });
 
             #[cfg(debug_assertions)]
             {

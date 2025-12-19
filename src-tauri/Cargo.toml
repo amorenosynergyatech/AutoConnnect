@@ -42,6 +42,10 @@ url = "2.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 tracing-appender = "0.2"
+tauri-plugin-autostart = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v1" }
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+
 
 
 

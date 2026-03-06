@@ -35,8 +35,8 @@
       {
         "fullscreen": false,
         "title": "Autoconnect",
-        "width": 500,
-        "height": 600,
+        "width": 550,
+        "height": 650,
         "visible": false,
         "resizable": false
       }

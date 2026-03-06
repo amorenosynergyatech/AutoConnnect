@@ -16,7 +16,6 @@
   margin-bottom: 1rem;
 }
 
-
 /* Logo (sin borde, 40 px) */
 .logo {
   width: 40px;
@@ -59,12 +58,14 @@
   border-radius: 10px;
   background: #fff;
   cursor: pointer;
-  transition: transform .08s ease, box-shadow .12s ease, background .12s ease;
+  transition:
+    transform 0.08s ease,
+    box-shadow 0.12s ease,
+    background 0.12s ease;
 }
 
-
 .config-btn:hover {
-  box-shadow: 0 1px 6px rgba(0, 0, 0, .08);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08);
 }
 
 .config-btn:active {
@@ -115,7 +116,7 @@
 .estado__wrap {
   display: inline-flex;
   align-items: center;
-  gap: .5rem;
+  gap: 0.5rem;
 }
 
 .estado__indicador {
@@ -199,4 +200,23 @@ body,
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.tab {
+  padding: 8px 14px;
+  border: none;
+  cursor: pointer;
+  background: #eee;
+  border-radius: 6px;
+}
+
+.tab.active {
+  background: #007bff;
+  color: #fff;
 }

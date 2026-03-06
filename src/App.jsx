@@ -7,7 +7,7 @@ export default function App() {
   const colores = {
     rojo: "#ff3b30",
     verde: "#34c759",
-    naranja: "#ff9f0a"
+    naranja: "#ff9f0a",
   };
 
   const [estado, setEstado] = useState("rojo");
@@ -23,9 +23,20 @@ export default function App() {
   // 🔥 Nuevo: reemplaza ipservidor → server
   const [server, setServer] = useState("");
 
+  const [qaeServer, setQaeServer] = useState("");
+  const [qaePort, setQaePort] = useState("");
+
+  // Tabs
+  const [activeTab, setActiveTab] = useState("dms");
+
+  // QAE
+  const [useQae, setUseQae] = useState(false);
+  const [usuarioQae, setUsuarioQae] = useState("");
+  const [contrasenaQae, setContrasenaQae] = useState("");
+
   const [SECRET_KEY, setKey] = useState("");
   useEffect(() => {
-    invoke('obtener_contrasena_encrypt').then(setKey).catch(console.error);
+    invoke("obtener_contrasena_encrypt").then(setKey).catch(console.error);
   }, []);
 
   const etiquetas = {
@@ -36,13 +47,13 @@ export default function App() {
 
   const [dms, setDms] = useState({
     quiter: false,
-    star: false
+    star: false,
   });
 
   const handleDmsChange = (name) => {
     setDms({
       quiter: name === "quiter",
-      star: name === "star"
+      star: name === "star",
     });
   };
 
@@ -70,21 +81,30 @@ export default function App() {
           setEstado("rojo");
         }
       });
-
   }, []);
 
   useEffect(() => {
     if (showConfig && SECRET_KEY) {
       invoke("obtener_config_sqlite", { key: SECRET_KEY })
-        .then(cfg => {
+        .then((cfg) => {
           if (!cfg) return;
-          setServer(cfg.server || "");      // ← ahora se usa SERVER
+
+          setServer(cfg.server || "");
           setUsuario(cfg.username || "");
           setContrasena(cfg.password || "");
           setWebsocketpuerto(cfg.puertoagente || "");
           setDms({ quiter: !!cfg.usequiter, star: !!cfg.usestar });
+
+          // 🔥 QAE
+          setUseQae(!!cfg.useqae);
+          setUsuarioQae(cfg.usuarioqae || "");
+          setContrasenaQae(cfg.contrasenaqae || "");
+
+          // 👇 AÑADE ESTO
+          setQaeServer(cfg.qaeServer || "");
+          setQaePort(cfg.qaePort || "");
         })
-        .catch(e => console.error("Leer config:", e));
+        .catch((e) => console.error("Leer config:", e));
     }
   }, [showConfig, SECRET_KEY]);
 
@@ -92,12 +112,20 @@ export default function App() {
     e.preventDefault();
     try {
       await invoke("guardar_config_sqlite", {
-        server: server,                // ← guardamos server
+        server,
         username: usuario,
         password: contrasena,
         puertoagente: websocketpuerto,
         usequiter: dms.quiter ? 1 : 0,
         usestar: dms.star ? 1 : 0,
+
+        // 🔥 QAE
+        useqae: useQae ? 1 : 0,
+        usuarioqae: usuarioQae,
+        contrasenaqae: contrasenaQae,
+        qaeserver: qaeServer,
+        qaeport: qaePort,
+
         key: SECRET_KEY,
       });
       setShowConfig(false);
@@ -142,83 +170,161 @@ export default function App() {
         <section className="config">
           <h2 className="subtitulo">Configuración</h2>
           <form className="form" onSubmit={handleGuardar}>
+            <div className="tabs">
+              <button
+                type="button"
+                className={activeTab === "dms" ? "tab active" : "tab"}
+                onClick={() => setActiveTab("dms")}
+              >
+                Quiter / Star
+              </button>
 
-            <div className="form-group">
-              <label htmlFor="websocketpuerto">Puerto Agente</label>
-              <input
-                id="websocketpuerto"
-                type="number"
-                value={websocketpuerto}
-                onChange={(e) => setWebsocketpuerto(e.target.value)}
-                placeholder="8080"
-                className="input"
-                min="0"
-              />
+              <button
+                type="button"
+                className={activeTab === "qae" ? "tab active" : "tab"}
+                onClick={() => setActiveTab("qae")}
+              >
+                QAE
+              </button>
             </div>
-
-            <div className="form-group">
-              <label>DMS</label>
-              <div>
-                <label>
+            {activeTab === "dms" && (
+              <>
+                <div className="form-group">
+                  <label htmlFor="websocketpuerto">Puerto Agente</label>
                   <input
-                    type="checkbox"
-                    checked={dms.quiter}
-                    onChange={() => handleDmsChange("quiter")}
+                    id="websocketpuerto"
+                    type="number"
+                    value={websocketpuerto}
+                    onChange={(e) => setWebsocketpuerto(e.target.value)}
+                    className="input"
                   />
-                  Quiter
-                </label>
-              </div>
-              <div>
-                <label>
+                </div>
+
+                <div className="form-group">
+                  <label>DMS</label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={dms.quiter}
+                      onChange={() => handleDmsChange("quiter")}
+                    />
+                    Quiter
+                  </label>
+
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={dms.star}
+                      onChange={() => handleDmsChange("star")}
+                    />
+                    Star
+                  </label>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="server">Server</label>
                   <input
-                    type="checkbox"
-                    checked={dms.star}
-                    onChange={() => handleDmsChange("star")}
+                    id="server"
+                    type="text"
+                    value={server}
+                    onChange={(e) => setServer(e.target.value)}
+                    className="input"
                   />
-                  Star
-                </label>
-              </div>
-            </div>
+                </div>
 
-            <div className="form-group">
-              <label htmlFor="server">Server</label>
-              <input
-                id="server"
-                type="text"
-                value={server}
-                onChange={(e) => setServer(e.target.value)}
-                placeholder="192.175..."
-                className="input"
-              />
-            </div>
+                <div className="form-group">
+                  <label htmlFor="usuario">Usuario</label>
+                  <input
+                    id="usuario"
+                    type="text"
+                    value={usuario}
+                    onChange={(e) => setUsuario(e.target.value)}
+                    className="input"
+                  />
+                </div>
 
-            <div className="form-group">
-              <label htmlFor="usuario">Usuario</label>
-              <input
-                id="usuario"
-                type="text"
-                value={usuario}
-                className="input"
-                onChange={(e) => setUsuario(e.target.value)}
-                placeholder="usuario..."
-              />
-            </div>
+                <div className="form-group">
+                  <label htmlFor="contrasena">Contraseña</label>
+                  <input
+                    id="contrasena"
+                    type="password"
+                    value={contrasena}
+                    onChange={(e) => setContrasena(e.target.value)}
+                    className="input"
+                  />
+                </div>
+              </>
+            )}
 
-            <div className="form-group">
-              <label htmlFor="contrasena">Contraseña</label>
-              <input
-                id="contrasena"
-                type="password"
-                value={contrasena}
-                className="input"
-                onChange={(e) => setContrasena(e.target.value)}
-                placeholder="*********"
-              />
-            </div>
+            {activeTab === "qae" && (
+              <>
+                <div className="form-group">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={useQae}
+                      onChange={(e) => setUseQae(e.target.checked)}
+                    />
+                    Usar QAE
+                  </label>
+                </div>
+
+                <div className="form-group">
+                  <label>Servidor QAE</label>
+                  <input
+                    type="text"
+                    value={qaeServer}
+                    onChange={(e) => setQaeServer(e.target.value)}
+                    disabled={!useQae}
+                    className="input"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Puerto QAE</label>
+                  <input
+                    type="text"
+                    value={qaePort}
+                    onChange={(e) => setQaePort(e.target.value)}
+                    disabled={!useQae}
+                    className="input"
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="usuarioqae">Usuario QAE</label>
+                  <input
+                    id="usuarioqae"
+                    type="text"
+                    value={usuarioQae}
+                    onChange={(e) => setUsuarioQae(e.target.value)}
+                    className="input"
+                    disabled={!useQae}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="contrasenaqae">Contraseña QAE</label>
+                  <input
+                    id="contrasenaqae"
+                    type="password"
+                    value={contrasenaQae}
+                    onChange={(e) => setContrasenaQae(e.target.value)}
+                    className="input"
+                    disabled={!useQae}
+                  />
+                </div>
+              </>
+            )}
 
             <div className="acciones-form">
-              <button type="submit" className="btn btn-primary">Guardar</button>
-              <button type="button" className="btn" onClick={() => setShowConfig(false)}>
+              <button type="submit" className="btn btn-primary">
+                Guardar
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setShowConfig(false)}
+              >
                 Cancelar
               </button>
             </div>

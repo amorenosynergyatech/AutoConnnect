@@ -1,6 +1,6 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 // LA LINEA SIGUIENTE SI ESTA COMENTADA APARECE LA CONSOLA
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+//#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use aes_gcm::AeadCore;
 use aes_gcm::{
@@ -281,8 +281,8 @@ fn obtener_config_sqlite(key: String) -> Result<ConfigRow, String> {
         row.get::<_, i64>(6)?,
         row.get::<_, String>(7)?,
         row.get::<_, String>(8)?,
-        row.get::<_, String>(9)?,
-        row.get::<_, String>(10)?,
+        row.get::<_, Option<String>>(9)?,
+        row.get::<_, Option<String>>(10)?,
     ))
 });
 
@@ -300,6 +300,12 @@ fn obtener_config_sqlite(key: String) -> Result<ConfigRow, String> {
     qaeserver,
     qaeport,
 )) => {
+
+    let qaeserver = qaeserver.unwrap_or_default();
+    let qaeport = qaeport.unwrap_or_default();
+
+    println!("QAE SERVER: {}", qaeserver);
+println!("QAE PORT: {}", qaeport);
     let username =
         decrypt_local(&username_enc, &key).unwrap_or_else(|_| username_enc.clone());
     let password =

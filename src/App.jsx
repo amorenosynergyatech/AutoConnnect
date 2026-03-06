@@ -87,6 +87,7 @@ export default function App() {
     if (showConfig && SECRET_KEY) {
       invoke("obtener_config_sqlite", { key: SECRET_KEY })
         .then((cfg) => {
+          console.log("CONFIG RECIBIDA:", cfg);
           if (!cfg) return;
 
           setServer(cfg.server || "");
@@ -101,8 +102,8 @@ export default function App() {
           setContrasenaQae(cfg.contrasenaqae || "");
 
           // 👇 AÑADE ESTO
-          setQaeServer(cfg.qaeServer || "");
-          setQaePort(cfg.qaePort || "");
+          setQaeServer(cfg.qaeserver || "");
+          setQaePort(cfg.qaeport || "");
         })
         .catch((e) => console.error("Leer config:", e));
     }

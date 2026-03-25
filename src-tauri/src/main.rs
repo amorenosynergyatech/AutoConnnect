@@ -1,6 +1,6 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 // LA LINEA SIGUIENTE SI ESTA COMENTADA APARECE LA CONSOLA
-//#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use aes_gcm::AeadCore;
 use aes_gcm::{
@@ -167,7 +167,7 @@ fn guardar_config_sqlite(
 
     key: String,
 ) -> Result<(), String> {
-        if key.is_empty() {
+    if key.is_empty() {
         return Err("Clave de cifrado vacía".into());
     }
 
@@ -252,8 +252,8 @@ fn obtener_config_sqlite(key: String) -> Result<ConfigRow, String> {
     let conn = open_db()?;
 
     let mut stmt = conn
-    .prepare(
-        "SELECT
+        .prepare(
+            "SELECT
             server,
             username,
             password,
@@ -267,81 +267,79 @@ fn obtener_config_sqlite(key: String) -> Result<ConfigRow, String> {
             qaePort
         FROM ConfigApp
         LIMIT 1",
-    )
-    .map_err(|e| e.to_string())?;
+        )
+        .map_err(|e| e.to_string())?;
 
     let row = stmt.query_row([], |row| {
-    Ok((
-        row.get::<_, String>(0)?,
-        row.get::<_, String>(1)?,
-        row.get::<_, String>(2)?,
-        row.get::<_, String>(3)?,
-        row.get::<_, i64>(4)?,
-        row.get::<_, i64>(5)?,
-        row.get::<_, i64>(6)?,
-        row.get::<_, String>(7)?,
-        row.get::<_, String>(8)?,
-        row.get::<_, Option<String>>(9)?,
-        row.get::<_, Option<String>>(10)?,
-    ))
-});
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, i64>(4)?,
+            row.get::<_, i64>(5)?,
+            row.get::<_, i64>(6)?,
+            row.get::<_, String>(7)?,
+            row.get::<_, String>(8)?,
+            row.get::<_, Option<String>>(9)?,
+            row.get::<_, Option<String>>(10)?,
+        ))
+    });
 
     match row {
         Ok((
-    server,
-    username_enc,
-    password_enc,
-    puertoagente,
-    usequiter,
-    usestar,
-    useqae,
-    usuarioqae_enc,
-    contrasenaqae_enc,
-    qaeserver,
-    qaeport,
-)) => {
+            server,
+            username_enc,
+            password_enc,
+            puertoagente,
+            usequiter,
+            usestar,
+            useqae,
+            usuarioqae_enc,
+            contrasenaqae_enc,
+            qaeserver,
+            qaeport,
+        )) => {
+            let qaeserver = qaeserver.unwrap_or_default();
+            let qaeport = qaeport.unwrap_or_default();
 
-    let qaeserver = qaeserver.unwrap_or_default();
-    let qaeport = qaeport.unwrap_or_default();
+            println!("QAE SERVER: {}", qaeserver);
+            println!("QAE PORT: {}", qaeport);
+            let username =
+                decrypt_local(&username_enc, &key).unwrap_or_else(|_| username_enc.clone());
+            let password =
+                decrypt_local(&password_enc, &key).unwrap_or_else(|_| password_enc.clone());
+            let usuarioqae = decrypt_local(&usuarioqae_enc, &key).unwrap_or(usuarioqae_enc);
+            let contrasenaqae =
+                decrypt_local(&contrasenaqae_enc, &key).unwrap_or(contrasenaqae_enc);
 
-    println!("QAE SERVER: {}", qaeserver);
-println!("QAE PORT: {}", qaeport);
-    let username =
-        decrypt_local(&username_enc, &key).unwrap_or_else(|_| username_enc.clone());
-    let password =
-        decrypt_local(&password_enc, &key).unwrap_or_else(|_| password_enc.clone());
-    let usuarioqae =
-        decrypt_local(&usuarioqae_enc, &key).unwrap_or(usuarioqae_enc);
-    let contrasenaqae =
-        decrypt_local(&contrasenaqae_enc, &key).unwrap_or(contrasenaqae_enc);
-
-    Ok(ConfigRow {
-        server,
-        username,
-        password,
-        puertoagente,
-        usequiter,
-        usestar,
-        useqae,
-        usuarioqae,
-        contrasenaqae,
-        qaeserver,
-        qaeport,
-    })
-}
+            Ok(ConfigRow {
+                server,
+                username,
+                password,
+                puertoagente,
+                usequiter,
+                usestar,
+                useqae,
+                usuarioqae,
+                contrasenaqae,
+                qaeserver,
+                qaeport,
+            })
+        }
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(ConfigRow {
-    server: "".into(),
-    username: "".into(),
-    password: "".into(),
-    puertoagente: "".into(),
-    usequiter: 0,
-    usestar: 0,
-    useqae: 0,
-    usuarioqae: "".into(),
-    contrasenaqae: "".into(),
-    qaeserver: "".into(),
-    qaeport: "".into(),
-}),
+            server: "".into(),
+            username: "".into(),
+            password: "".into(),
+            puertoagente: "".into(),
+            usequiter: 0,
+            usestar: 0,
+            useqae: 0,
+            usuarioqae: "".into(),
+            contrasenaqae: "".into(),
+            qaeserver: "".into(),
+            qaeport: "".into(),
+        }),
         Err(e) => Err(e.to_string()),
     }
 }
@@ -1181,6 +1179,410 @@ fn enable_autostart_windows(app_name: &str) -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
+// ============================================================
+// STRUCTS PARA AUTOCONNECT CON LEADS
+// ============================================================
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct AutoconnectTask {
+    idtarea: i64,
+    idcampana: i64,
+    idseguimiento: i64,
+    comando: serde_json::Value, // el JSON con "comando", "SQL", etc.
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct LeadRow {
+    codicliente: Option<serde_json::Value>,
+    nombrecliente: Option<String>,
+    nombrepropiocliente: Option<String>,
+    telefonocliente: Option<String>,
+    emailcliente: Option<String>,
+    marcavehiculo: Option<String>,
+    modelovehiculo: Option<String>,
+    matricula: Option<String>,
+    fechaor: Option<String>,
+    numorden: Option<String>,
+    base_or: Option<f64>,
+    comentarios: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct BulkInsertPayload {
+    #[serde(rename = "idSeguimiento")]
+    id_seguimiento: i64,
+    registros: Vec<LeadRow>,
+}
+
+// ============================================================
+// HELPERS: MAPEAR FILAS DEL BACKEND → LeadRow
+// ============================================================
+
+fn extract_rows_from_backend(value: &serde_json::Value) -> Vec<serde_json::Value> {
+    // La DLL devuelve: { "result": "STRING_ESCAPADO", "back": "Falso" }
+    // El STRING_ESCAPADO contiene: { "result": [[...], [...]] }
+
+    // Paso 1: sacar el string interior
+    let inner_str = match value.get("result").and_then(|v| v.as_str()) {
+        Some(s) => s.to_string(),
+        None => {
+            eprintln!("❌ No se encontró campo 'result' en la respuesta DLL");
+            return vec![];
+        }
+    };
+
+    // Paso 2: parsear ese string como JSON
+    let inner_json: serde_json::Value = match serde_json::from_str(&inner_str) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!(
+                "❌ Error parseando inner JSON: {e}\nContenido: {}",
+                &inner_str.chars().take(100).collect::<String>()
+            );
+            return vec![];
+        }
+    };
+
+    // Paso 3: extraer el array de arrays
+    match inner_json.get("result").and_then(|v| v.as_array()) {
+        Some(arr) => {
+            println!("✅ Filas extraídas correctamente: {}", arr.len());
+            arr.clone()
+        }
+        None => {
+            eprintln!("❌ No se encontró array 'result' en inner JSON");
+            vec![]
+        }
+    }
+}
+
+/// Determina si el SQL es de STAR o de QUITER
+fn is_star_sql(sql: &str) -> bool {
+    sql.to_lowercase().contains("tbl_productionorderregistry")
+}
+
+/// Obtiene un string de un JSON Value manejando null
+fn get_str(v: &serde_json::Value, key: &str) -> Option<String> {
+    v.get(key)
+        .and_then(|x| x.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
+fn get_f64(v: &serde_json::Value, key: &str) -> Option<f64> {
+    v.get(key).and_then(|x| x.as_f64())
+}
+
+/// Mapea una fila de STAR → LeadRow
+fn map_star_row(row: &serde_json::Value) -> Option<LeadRow> {
+    // codicliente puede ser número o string
+    let codicliente = row.get("CodigoCliente").cloned();
+    if codicliente.is_none() {
+        return None;
+    }
+
+    let nombre_cliente = get_str(row, "NombreCliente");
+    let nombre_propio = get_str(row, "FLD_Name2").or_else(|| nombre_cliente.clone()); // fallback
+
+    Some(LeadRow {
+        codicliente,
+        nombrecliente: nombre_cliente,
+        nombrepropiocliente: nombre_propio,
+        telefonocliente: get_str(row, "TelefonoMovilCliente")
+            .or_else(|| get_str(row, "TelefonoCliente")),
+        emailcliente: get_str(row, "EmailCliente").or_else(|| get_str(row, "ContactEmailCliente")),
+        marcavehiculo: get_str(row, "AbreviaturaMarca")
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .or_else(|| get_str(row, "Marca")),
+        modelovehiculo: get_str(row, "ModeloVehiculo"),
+        matricula: get_str(row, "Matricula"),
+        fechaor: get_str(row, "FechaOR")
+            .map(|s| s.split(' ').next().unwrap_or("").to_string())
+            .filter(|s| !s.is_empty()),
+        numorden: {
+            let prefijo = get_str(row, "PrefijoOrden").unwrap_or_default();
+            let numero = get_str(row, "NumeroOrden").unwrap_or_default();
+            let combined = format!("{}{}", prefijo, numero);
+            if combined.is_empty() {
+                None
+            } else {
+                Some(combined)
+            }
+        },
+        base_or: get_f64(row, "FLD_ES_TotalProductionOrderAmount"),
+        comentarios: None,
+    })
+}
+
+/// Mapea una fila de QUITER → LeadRow  
+/// Ajusta los nombres de campo según tu esquema QUITER real
+fn map_quiter_row(row: &serde_json::Value) -> Option<LeadRow> {
+    // Las filas son arrays posicionales, no objetos
+    let arr = row.as_array()?;
+
+    // Helper para extraer string de posición
+    let get_pos = |i: usize| -> Option<String> {
+        arr.get(i)
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+
+    // Si la fila no tiene al menos codicliente, descartarla
+    // (algunas filas del debug son fragmentos rotos como ["03/03/25", "1627001", ...])
+    let codicliente_str = get_pos(0)?;
+
+    // Validar que sea un código numérico (descartar filas fragmentadas)
+    if codicliente_str.parse::<i64>().is_err() {
+        return None;
+    }
+
+    Some(LeadRow {
+        codicliente: Some(serde_json::Value::String(codicliente_str)),
+        nombrecliente: get_pos(1),
+        nombrepropiocliente: get_pos(14),
+        telefonocliente: get_pos(4) // móvil primero
+            .or_else(|| get_pos(3)) // telefono2
+            .or_else(|| get_pos(2)), // telefono1
+        emailcliente: get_pos(5),
+        marcavehiculo: get_pos(7),
+        modelovehiculo: get_pos(8),
+        matricula: get_pos(9),
+        fechaor: get_pos(12),
+        numorden: get_pos(13),
+        base_or: get_pos(15).and_then(|s| s.parse::<f64>().ok()),
+        comentarios: None,
+    })
+}
+
+// ============================================================
+// FUNCIÓN PRINCIPAL: LOOP AUTOCONNECT CON LEADS
+// ============================================================
+
+async fn loop_autoconnect(backend: Arc<Mutex<PythonBackend>>) {
+    let client = reqwest::Client::new();
+
+    // ⚠️  Cambia esto por tu URL real o léela de config.cfg
+    let base_url = "https://60d6-109-107-116-142.ngrok-free.app";
+    let idempresa: i64 = 2; // igual que antes
+
+    loop {
+        println!("🔄 [AUTOCONNECT] Buscando tarea...");
+
+        // ─── 1. OBTENER TAREA ───────────────────────────────────────
+        let task_result = client
+            .get(&format!("{}/api/autoconnect/task/{}", base_url, idempresa))
+            .send()
+            .await;
+
+        let task_json = match task_result {
+            Ok(resp) => match resp.json::<serde_json::Value>().await {
+                Ok(j) => j,
+                Err(e) => {
+                    eprintln!("❌ Error parseando tarea: {e}");
+                    sleep(Duration::from_secs(10)).await;
+                    continue;
+                }
+            },
+            Err(e) => {
+                eprintln!("❌ Error conectando al backend: {e}");
+                sleep(Duration::from_secs(10)).await;
+                continue;
+            }
+        };
+
+        // Sin tareas → esperar
+        if task_json.get("empty").is_some() {
+            sleep(Duration::from_secs(10)).await;
+            continue;
+        }
+
+        // Parsear campos obligatorios
+        let idtarea = match task_json["idtarea"].as_i64() {
+            Some(v) => v,
+            None => {
+                eprintln!("❌ Tarea sin idtarea válido");
+                sleep(Duration::from_secs(10)).await;
+                continue;
+            }
+        };
+
+        // idseguimiento e idcampana pueden ser top-level o estar dentro de "comando"
+        let idseguimiento = task_json["idseguimiento"]
+            .as_i64()
+            .or_else(|| task_json["comando"]["idseguimiento"].as_i64());
+        let idcampana = task_json["idcampana"]
+            .as_i64()
+            .or_else(|| task_json["comando"]["idcampana"].as_i64());
+
+        let comando_value = &task_json["comando"];
+        let comando_str = match comando_value {
+            serde_json::Value::String(s) => s.clone(),
+            other => other.to_string(),
+        };
+
+        println!("📥 [AUTOCONNECT] Tarea {idtarea} recibida");
+
+        // ─── 2. EJECUTAR CONTRA LA DLL ──────────────────────────────
+        let dll_response_raw = {
+            let mut bk = backend.lock().unwrap();
+            bk.send_command(&comando_str)
+        };
+
+        println!("📤 [AUTOCONNECT] Respuesta DLL obtenida");
+
+        // ─── 3. PARSEAR RESPUESTA DLL ───────────────────────────────
+        // La DLL devuelve un string JSON que contiene otro string JSON dentro
+        // Primer parse: obtenemos el string exterior
+        let dll_json: serde_json::Value = match serde_json::from_str(&dll_response_raw) {
+            Ok(v) => v,
+            Err(_) => {
+                eprintln!("⚠️  Respuesta DLL no es JSON: {dll_response_raw}");
+                let _ = client
+                    .post(&format!("{}/api/autoconnect/result", base_url))
+                    .json(&serde_json::json!({"idtarea": idtarea, "data": dll_response_raw}))
+                    .send()
+                    .await;
+                sleep(Duration::from_secs(10)).await;
+                continue;
+            }
+        };
+
+        // Si el valor raíz ES un string (doble escape), parsearlo de nuevo
+        let dll_json = if let Some(s) = dll_json.as_str() {
+            match serde_json::from_str::<serde_json::Value>(s) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("❌ Error en segundo parse: {e}");
+                    sleep(Duration::from_secs(10)).await;
+                    continue;
+                }
+            }
+        } else {
+            dll_json
+        };
+
+        // 👇 AÑADE ESTO TEMPORALMENTE para ver la estructura real
+        println!(
+            "🔍 [DEBUG] Respuesta DLL completa:\n{}",
+            serde_json::to_string_pretty(&dll_json).unwrap_or_else(|_| dll_response_raw.clone())
+        );
+        // ─── 4. SI TENEMOS idseguimiento → ACTUALIZAR LEADS ─────────
+        if let (Some(id_seg), Some(id_camp)) = (idseguimiento, idcampana) {
+            println!("🔄 [AUTOCONNECT] Actualizando leads para seguimiento {id_seg}...");
+
+            let rows = extract_rows_from_backend(&dll_json);
+            println!("📦 [AUTOCONNECT] Filas obtenidas de DLL: {}", rows.len());
+
+            let sql_str = comando_value
+                .get("SQL")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let star = is_star_sql(sql_str);
+
+            let mut todos_leads: Vec<LeadRow> = rows
+                .iter()
+                .filter_map(|row| {
+                    if star {
+                        map_star_row(row)
+                    } else {
+                        map_quiter_row(row)
+                    }
+                })
+                .collect();
+
+            println!("📋 [AUTOCONNECT] Leads mapeados: {}", todos_leads.len());
+
+            // ─── Obtener config de la campaña (agrupar) ─────────────
+            let (agrupar, criterio) = match client
+                .get(&format!("{}/api/campana/{}/config", base_url, id_camp))
+                .send()
+                .await
+            {
+                Ok(resp) => match resp.json::<serde_json::Value>().await {
+                    Ok(json) => {
+                        let ag = json
+                            .get("agrupar")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        let cr = json
+                            .get("criterioagrupar")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("cliente")
+                            .to_string();
+                        (ag, cr)
+                    }
+                    Err(_) => (false, "cliente".to_string()),
+                },
+                Err(_) => (false, "cliente".to_string()),
+            };
+
+            // ─── Deduplicar por matricula si agrupar = true ──────────
+            if agrupar {
+                let mut seen = std::collections::HashSet::new();
+                todos_leads.retain(|lead| {
+                    let key = lead
+                        .matricula
+                        .clone()
+                        .or_else(|| lead.numorden.clone())
+                        .unwrap_or_default()
+                        .to_uppercase();
+                    if key.is_empty() {
+                        return true;
+                    }
+                    seen.insert(key)
+                });
+                println!(
+                    "🔄 [AUTOCONNECT] Tras deduplicación: {} leads únicos",
+                    todos_leads.len()
+                );
+            }
+
+            if !todos_leads.is_empty() {
+                let bulk_payload = BulkInsertPayload {
+                    id_seguimiento: id_seg,
+                    registros: todos_leads,
+                };
+
+                match client
+                    .post(&format!("{}/programacionseguimiento/bulk", base_url))
+                    .json(&bulk_payload)
+                    .send()
+                    .await
+                {
+                    Ok(resp) if resp.status().is_success() => {
+                        println!("✅ [AUTOCONNECT] Bulk insert OK");
+                    }
+                    Ok(resp) => {
+                        eprintln!(
+                            "⚠️  [AUTOCONNECT] Bulk insert devolvió {}: {:?}",
+                            resp.status(),
+                            resp.text().await
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("❌ [AUTOCONNECT] Error en bulk insert: {e}");
+                    }
+                }
+            }
+        }
+        // ─── 5. REPORTAR RESULTADO DE LA TAREA ──────────────────────
+        let _ = client
+            .post(&format!("{}/api/autoconnect/result", base_url))
+            .json(&serde_json::json!({
+                "idtarea": idtarea,
+                "data": dll_response_raw
+            }))
+            .send()
+            .await;
+
+        println!("✅ [AUTOCONNECT] Tarea {idtarea} completada");
+
+        sleep(Duration::from_secs(10)).await;
+    }
+}
+
 // ============ MAIN TAURI ============
 #[tokio::main]
 async fn main() {
@@ -1302,6 +1704,12 @@ async fn main() {
                         eprintln!("Axum-error: {e}");
                     }
                 }
+            });
+
+            let backend_clone = python_backend.clone();
+
+            tauri::async_runtime::spawn(async move {
+                loop_autoconnect(backend_clone).await;
             });
 
             // Llamada inicial a cargarDocOrdenes

@@ -147,6 +147,12 @@ struct ConfigRow {
     contrasenaqae: String,
     qaeserver: String,
     qaeport: String,
+
+    // 🔥 QAC
+    useqac: i64,
+    usuarioqac: String,
+    contrasenaqac: String,
+
 }
 
 #[tauri::command]
@@ -164,6 +170,11 @@ fn guardar_config_sqlite(
     contrasenaqae: String,
     qaeserver: String,
     qaeport: String,
+
+    // 🔥 QAC
+    useqac: i64,
+    usuarioqac: String,
+    contrasenaqac: String,
 
     key: String,
 ) -> Result<(), String> {
@@ -195,9 +206,12 @@ fn guardar_config_sqlite(
                 qaeUser,
                 qaePassword,
                 qaeServer,
-                qaePort
+                qaePort,
+                useQAC,
+                qac_user,
+                qac_password
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 server,
                 username_enc,
@@ -209,7 +223,10 @@ fn guardar_config_sqlite(
                 usuario_qae_enc,
                 contrasena_qae_enc,
                 qaeserver,
-                qaeport
+                qaeport,
+                useqac,
+                usuarioqac,
+                contrasenaqac
             ],
         )
         .map_err(|e| e.to_string())?;
@@ -226,7 +243,10 @@ fn guardar_config_sqlite(
                 qaeUser      = ?8,
                 qaePassword  = ?9,
                 qaeServer    = ?10,
-                qaePort      = ?11",
+                qaePort      = ?11,
+                useQAC       = ?12,
+                qac_user     = ?13,
+                qac_password = ?14",
             params![
                 server,
                 username_enc,
@@ -238,7 +258,10 @@ fn guardar_config_sqlite(
                 usuario_qae_enc,
                 contrasena_qae_enc,
                 qaeserver,
-                qaeport
+                qaeport,
+                useqac,
+                usuarioqac,
+                contrasenaqac
             ],
         )
         .map_err(|e| e.to_string())?;
@@ -264,7 +287,10 @@ fn obtener_config_sqlite(key: String) -> Result<ConfigRow, String> {
             qaeUser,
             qaePassword,
             qaeServer,
-            qaePort
+            qaePort,
+            useQAC,
+            qac_user,
+            qac_password
         FROM ConfigApp
         LIMIT 1",
         )
@@ -283,6 +309,9 @@ fn obtener_config_sqlite(key: String) -> Result<ConfigRow, String> {
             row.get::<_, String>(8)?,
             row.get::<_, Option<String>>(9)?,
             row.get::<_, Option<String>>(10)?,
+            row.get::<_, i64>(11)?,
+            row.get::<_, String>(12)?,
+            row.get::<_, String>(13)?,
         ))
     });
 
@@ -299,6 +328,9 @@ fn obtener_config_sqlite(key: String) -> Result<ConfigRow, String> {
             contrasenaqae_enc,
             qaeserver,
             qaeport,
+            useqac,
+            usuarioqac,
+            contrasenaqac
         )) => {
             let qaeserver = qaeserver.unwrap_or_default();
             let qaeport = qaeport.unwrap_or_default();
@@ -325,6 +357,9 @@ fn obtener_config_sqlite(key: String) -> Result<ConfigRow, String> {
                 contrasenaqae,
                 qaeserver,
                 qaeport,
+                useqac,
+                usuarioqac,
+                contrasenaqac
             })
         }
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(ConfigRow {
@@ -339,6 +374,9 @@ fn obtener_config_sqlite(key: String) -> Result<ConfigRow, String> {
             contrasenaqae: "".into(),
             qaeserver: "".into(),
             qaeport: "".into(),
+            useqac: 0,
+            usuarioqac: "".into(),
+            contrasenaqac: "".into(),
         }),
         Err(e) => Err(e.to_string()),
     }
@@ -1064,6 +1102,7 @@ fn qae_activado_sync() -> Result<bool, String> {
     Ok(valor == 1)
 }
 
+
 async fn subir_doc_ordenes_handler(
     axum::extract::State(backend): axum::extract::State<Arc<Mutex<PythonBackend>>>,
     axum::Json(payload): axum::Json<SubirDocOrdenesPayload>,
@@ -1272,6 +1311,9 @@ fn get_str(v: &serde_json::Value, key: &str) -> Option<String> {
 fn get_f64(v: &serde_json::Value, key: &str) -> Option<f64> {
     v.get(key).and_then(|x| x.as_f64())
 }
+
+/*
+
 
 /// Mapea una fila de STAR → LeadRow
 fn map_star_row(row: &serde_json::Value) -> Option<LeadRow> {
@@ -1582,6 +1624,7 @@ async fn loop_autoconnect(backend: Arc<Mutex<PythonBackend>>) {
         sleep(Duration::from_secs(10)).await;
     }
 }
+     */
 
 // ============ MAIN TAURI ============
 #[tokio::main]
@@ -1707,10 +1750,12 @@ async fn main() {
             });
 
             let backend_clone = python_backend.clone();
-
+            
+            /*
             tauri::async_runtime::spawn(async move {
                 loop_autoconnect(backend_clone).await;
             });
+             */
 
             // Llamada inicial a cargarDocOrdenes
             let backend_for_call = python_backend.clone();

@@ -34,6 +34,11 @@ export default function App() {
   const [usuarioQae, setUsuarioQae] = useState("");
   const [contrasenaQae, setContrasenaQae] = useState("");
 
+  // QAC
+  const [useQac, setUseQac] = useState(false);
+  const [usuarioQac, setUsuarioQac] = useState("");
+  const [contrasenaQac, setContrasenaQac] = useState("");
+
   const [SECRET_KEY, setKey] = useState("");
   useEffect(() => {
     invoke("obtener_contrasena_encrypt").then(setKey).catch(console.error);
@@ -104,6 +109,10 @@ export default function App() {
           // 👇 AÑADE ESTO
           setQaeServer(cfg.qaeserver || "");
           setQaePort(cfg.qaeport || "");
+
+          setUseQac(!!cfg.useqac);
+          setUsuarioQac(cfg.usuarioqac || "");
+          setContrasenaQac(cfg.contrasenaqac || "");
         })
         .catch((e) => console.error("Leer config:", e));
     }
@@ -127,11 +136,43 @@ export default function App() {
         qaeserver: qaeServer,
         qaeport: qaePort,
 
+        // QAC
+        useqac: useQac ? 1 : 0,
+        usuarioqac: usuarioQac,
+        contrasenaqac: contrasenaQac,
+
         key: SECRET_KEY,
       });
       setShowConfig(false);
     } catch (err) {
       console.error("Guardar config:", err);
+    }
+  };
+
+  const handleObtenerCredencialesQAC = async () => {
+    try {
+      const input_json = {
+        comando: "credencialesQAC"
+      };
+
+      console.log("📤 Enviando:", input_json);
+
+      const result = await invoke("api_command_py", {
+        inputJson: JSON.stringify(input_json)
+      });
+
+      console.log("📥 Respuesta RAW:", result);
+
+      try {
+        const parsed = JSON.parse(result);
+        console.log("📦 Respuesta PARSEADA:", parsed);
+      } catch (e) {
+        console.warn("⚠️ No se pudo parsear JSON");
+      }
+
+      console.log("✅ Credenciales QAC obtenidas:", result);
+    } catch (error) {
+      console.error("❌ Error ejecutando credencialesQAC:", error);
     }
   };
 
@@ -186,6 +227,13 @@ export default function App() {
                 onClick={() => setActiveTab("qae")}
               >
                 QAE
+              </button>
+              <button
+                type="button"
+                className={activeTab === "qac" ? "tab active" : "tab"}
+                onClick={() => setActiveTab("qac")}
+              >
+                QAC
               </button>
             </div>
             {activeTab === "dms" && (
@@ -313,6 +361,48 @@ export default function App() {
                     className="input"
                     disabled={!useQae}
                   />
+                </div>
+              </>
+            )}
+            {activeTab === "qac" && (
+              <>
+                <div className="form-group">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={useQac}
+                      onChange={(e) => setUseQac(e.target.checked)}
+                    />
+                    Usar QAC
+                  </label>
+                </div>
+                <div className="form-group">
+                  <label htmlFor="usuarioqac">Usuario QAC</label>
+                  <input
+                    id="usuarioqac"
+                    type="text"
+                    value={usuarioQac}
+                    onChange={(e) => setUsuarioQac(e.target.value)}
+                    className="input"
+                    disabled={!useQac}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="contrasenaqac">Contraseña QAC</label>
+                  <input
+                    id="contrasenaqac"
+                    type="password"
+                    value={contrasenaQac}
+                    onChange={(e) => setContrasenaQac(e.target.value)}
+                    className="input"
+                    disabled={!useQac}
+                  />
+                </div>
+                <div className="mb-3">
+                  <button onClick={handleObtenerCredencialesQAC} className="btn btn-primary" disabled={!useQac}>
+                    Obtener Credenciales QAC
+                  </button>
                 </div>
               </>
             )}

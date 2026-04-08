@@ -946,6 +946,142 @@ async fn call_api_cargar_doc_ordenes(backend: Arc<Mutex<PythonBackend>>) -> Resu
     }
 }
 
+fn val_to_string(v: Option<&serde_json::Value>) -> Option<String> {
+    v.and_then(|val| {
+        if val.is_string() {
+            val.as_str().map(|s| s.to_string())
+        } else {
+            Some(val.to_string())
+        }
+    })
+}
+
+fn map_array_to_lead(r: &Vec<serde_json::Value>) -> Option<serde_json::Value> {
+    if r.len() < 2 {
+        return None;
+    }
+
+    // ✅ Formato 16 columnas (normalizado C1…C16)
+    if r.len() == 16 {
+        // Teléfono: coger el primero no vacío entre r[4], r[3], r[2]
+        let telefono = [r.get(4), r.get(3), r.get(2)]
+            .iter()
+            .filter_map(|v| *v)
+            .find(|v| !v.as_str().unwrap_or("").trim().is_empty())
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        return Some(serde_json::json!({
+            "codicliente":        val_to_string(r.get(0)),
+            "nombrecliente":      val_to_string(r.get(1)),
+            "nombrepropiocliente": val_to_string(r.get(14)), // ✅ r[14]
+            "telefonocliente":    telefono,
+            "emailcliente":       val_to_string(r.get(5)),   // ✅ r[5]
+            "marcavehiculo":      val_to_string(r.get(6)),
+            "modelovehiculo":     val_to_string(r.get(7)),
+            "matricula":          val_to_string(r.get(9)),   // ✅ r[9]
+            "fechaor":            val_to_string(r.get(12)),  // ✅ r[12] = "01/02/25"
+            "numorden":           val_to_string(r.get(13)),  // ✅ r[13] = "1608811"
+        }));
+    }
+
+    // Formato genérico (fallback para otras longitudes)
+    Some(serde_json::json!({
+        "codicliente":     val_to_string(r.get(0)),
+        "nombrecliente":   val_to_string(r.get(1)),
+        "telefonocliente": val_to_string(r.get(3)),
+        "emailcliente":    val_to_string(r.get(4)),
+        "marcavehiculo":   val_to_string(r.get(6)),
+        "modelovehiculo":  val_to_string(r.get(7)),
+        "matricula":       val_to_string(r.get(8)),
+        "fechaor":         val_to_string(r.get(11)),
+        "numorden":        val_to_string(r.get(12))
+    }))
+}
+
+async fn loop_leads_sync(backend: Arc<Mutex<PythonBackend>>) {
+    let client = reqwest::Client::new();
+
+    loop {
+        println!("🔄 [AUTO] Buscando trabajos de leads...");
+
+        let resp = client
+            .get("https://3e76-109-107-116-142.ngrok-free.app/autoconnect/pending-leads")
+            .send()
+            .await;
+
+        if let Ok(r) = resp {
+            if let Ok(jobs) = r.json::<Vec<serde_json::Value>>().await {
+
+                for job in jobs {
+                    let id_seguimiento = job["idSeguimiento"].as_i64().unwrap();
+                    let sql = job["sql"].as_str().unwrap();
+
+                    println!("🚀 Ejecutando seguimiento {}", id_seguimiento);
+                    println!("🧠 SQL enviado al backend:");
+println!("{}", sql);
+println!("----------------------------------------");
+
+                    let is_star = sql.to_lowercase().contains("tbl_productionorderregistry");
+
+                    let comando = serde_json::json!({
+                        "comando": if is_star { "consultaCampanaSTAR" } else { "consultaCampana" },
+                        "SQL": sql,
+                        "empresa": "1",
+                        "almacen": ""
+                    });
+
+                   let response = {
+    let mut bk = backend.lock().unwrap();
+    bk.send_command(&comando.to_string())
+};
+
+println!("📡 RAW RESPONSE DLL:\n{}", response);
+
+                    let parsed: serde_json::Value = match serde_json::from_str(&response) {
+    Ok(serde_json::Value::String(inner)) => {
+        // 🔥 segundo parseo
+        serde_json::from_str(&inner).unwrap_or_default()
+    }
+    Ok(val) => val,
+    Err(e) => {
+        println!("❌ Error parseando respuesta: {}", e);
+        serde_json::json!({})
+    }
+};
+
+                    let rows = extract_rows_from_backend(&parsed);
+
+                    let mut leads: Vec<serde_json::Value> = vec![];
+
+                    for r in rows {
+                        if let Some(arr) = r.as_array() {
+                            let lead = map_array_to_lead(arr); // 👇 te lo dejo abajo
+                            if lead.is_some() {
+                                leads.push(serde_json::json!(lead.unwrap()));
+                            }
+                        }
+                    }
+
+                    println!("📦 Leads obtenidos: {}", leads.len());
+
+                    // 🚀 enviar a backend
+                    let _ = client
+                        .post("https://3e76-109-107-116-142.ngrok-free.app/autoconnect/actualizar-leads")
+                        .json(&serde_json::json!({
+                            "idSeguimiento": id_seguimiento,
+                            "registros": leads
+                        }))
+                        .send()
+                        .await;
+                }
+            }
+        }
+
+        sleep(Duration::from_secs(60)).await;
+    }
+}
+
 #[tauri::command]
 async fn call_api_cargar_doc_ordenes_backend(
     state: tauri::State<'_, Arc<Mutex<PythonBackend>>>,
@@ -1312,320 +1448,6 @@ fn get_f64(v: &serde_json::Value, key: &str) -> Option<f64> {
     v.get(key).and_then(|x| x.as_f64())
 }
 
-/*
-
-
-/// Mapea una fila de STAR → LeadRow
-fn map_star_row(row: &serde_json::Value) -> Option<LeadRow> {
-    // codicliente puede ser número o string
-    let codicliente = row.get("CodigoCliente").cloned();
-    if codicliente.is_none() {
-        return None;
-    }
-
-    let nombre_cliente = get_str(row, "NombreCliente");
-    let nombre_propio = get_str(row, "FLD_Name2").or_else(|| nombre_cliente.clone()); // fallback
-
-    Some(LeadRow {
-        codicliente,
-        nombrecliente: nombre_cliente,
-        nombrepropiocliente: nombre_propio,
-        telefonocliente: get_str(row, "TelefonoMovilCliente")
-            .or_else(|| get_str(row, "TelefonoCliente")),
-        emailcliente: get_str(row, "EmailCliente").or_else(|| get_str(row, "ContactEmailCliente")),
-        marcavehiculo: get_str(row, "AbreviaturaMarca")
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .or_else(|| get_str(row, "Marca")),
-        modelovehiculo: get_str(row, "ModeloVehiculo"),
-        matricula: get_str(row, "Matricula"),
-        fechaor: get_str(row, "FechaOR")
-            .map(|s| s.split(' ').next().unwrap_or("").to_string())
-            .filter(|s| !s.is_empty()),
-        numorden: {
-            let prefijo = get_str(row, "PrefijoOrden").unwrap_or_default();
-            let numero = get_str(row, "NumeroOrden").unwrap_or_default();
-            let combined = format!("{}{}", prefijo, numero);
-            if combined.is_empty() {
-                None
-            } else {
-                Some(combined)
-            }
-        },
-        base_or: get_f64(row, "FLD_ES_TotalProductionOrderAmount"),
-        comentarios: None,
-    })
-}
-
-/// Mapea una fila de QUITER → LeadRow  
-/// Ajusta los nombres de campo según tu esquema QUITER real
-fn map_quiter_row(row: &serde_json::Value) -> Option<LeadRow> {
-    // Las filas son arrays posicionales, no objetos
-    let arr = row.as_array()?;
-
-    // Helper para extraer string de posición
-    let get_pos = |i: usize| -> Option<String> {
-        arr.get(i)
-            .and_then(|v| v.as_str())
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-    };
-
-    // Si la fila no tiene al menos codicliente, descartarla
-    // (algunas filas del debug son fragmentos rotos como ["03/03/25", "1627001", ...])
-    let codicliente_str = get_pos(0)?;
-
-    // Validar que sea un código numérico (descartar filas fragmentadas)
-    if codicliente_str.parse::<i64>().is_err() {
-        return None;
-    }
-
-    Some(LeadRow {
-        codicliente: Some(serde_json::Value::String(codicliente_str)),
-        nombrecliente: get_pos(1),
-        nombrepropiocliente: get_pos(14),
-        telefonocliente: get_pos(4) // móvil primero
-            .or_else(|| get_pos(3)) // telefono2
-            .or_else(|| get_pos(2)), // telefono1
-        emailcliente: get_pos(5),
-        marcavehiculo: get_pos(7),
-        modelovehiculo: get_pos(8),
-        matricula: get_pos(9),
-        fechaor: get_pos(12),
-        numorden: get_pos(13),
-        base_or: get_pos(15).and_then(|s| s.parse::<f64>().ok()),
-        comentarios: None,
-    })
-}
-
-// ============================================================
-// FUNCIÓN PRINCIPAL: LOOP AUTOCONNECT CON LEADS
-// ============================================================
-
-async fn loop_autoconnect(backend: Arc<Mutex<PythonBackend>>) {
-    let client = reqwest::Client::new();
-
-    // ⚠️  Cambia esto por tu URL real o léela de config.cfg
-    let base_url = "https://60d6-109-107-116-142.ngrok-free.app";
-    let idempresa: i64 = 2; // igual que antes
-
-    loop {
-        println!("🔄 [AUTOCONNECT] Buscando tarea...");
-
-        // ─── 1. OBTENER TAREA ───────────────────────────────────────
-        let task_result = client
-            .get(&format!("{}/api/autoconnect/task/{}", base_url, idempresa))
-            .send()
-            .await;
-
-        let task_json = match task_result {
-            Ok(resp) => match resp.json::<serde_json::Value>().await {
-                Ok(j) => j,
-                Err(e) => {
-                    eprintln!("❌ Error parseando tarea: {e}");
-                    sleep(Duration::from_secs(10)).await;
-                    continue;
-                }
-            },
-            Err(e) => {
-                eprintln!("❌ Error conectando al backend: {e}");
-                sleep(Duration::from_secs(10)).await;
-                continue;
-            }
-        };
-
-        // Sin tareas → esperar
-        if task_json.get("empty").is_some() {
-            sleep(Duration::from_secs(10)).await;
-            continue;
-        }
-
-        // Parsear campos obligatorios
-        let idtarea = match task_json["idtarea"].as_i64() {
-            Some(v) => v,
-            None => {
-                eprintln!("❌ Tarea sin idtarea válido");
-                sleep(Duration::from_secs(10)).await;
-                continue;
-            }
-        };
-
-        // idseguimiento e idcampana pueden ser top-level o estar dentro de "comando"
-        let idseguimiento = task_json["idseguimiento"]
-            .as_i64()
-            .or_else(|| task_json["comando"]["idseguimiento"].as_i64());
-        let idcampana = task_json["idcampana"]
-            .as_i64()
-            .or_else(|| task_json["comando"]["idcampana"].as_i64());
-
-        let comando_value = &task_json["comando"];
-        let comando_str = match comando_value {
-            serde_json::Value::String(s) => s.clone(),
-            other => other.to_string(),
-        };
-
-        println!("📥 [AUTOCONNECT] Tarea {idtarea} recibida");
-
-        // ─── 2. EJECUTAR CONTRA LA DLL ──────────────────────────────
-        let dll_response_raw = {
-            let mut bk = backend.lock().unwrap();
-            bk.send_command(&comando_str)
-        };
-
-        println!("📤 [AUTOCONNECT] Respuesta DLL obtenida");
-
-        // ─── 3. PARSEAR RESPUESTA DLL ───────────────────────────────
-        // La DLL devuelve un string JSON que contiene otro string JSON dentro
-        // Primer parse: obtenemos el string exterior
-        let dll_json: serde_json::Value = match serde_json::from_str(&dll_response_raw) {
-            Ok(v) => v,
-            Err(_) => {
-                eprintln!("⚠️  Respuesta DLL no es JSON: {dll_response_raw}");
-                let _ = client
-                    .post(&format!("{}/api/autoconnect/result", base_url))
-                    .json(&serde_json::json!({"idtarea": idtarea, "data": dll_response_raw}))
-                    .send()
-                    .await;
-                sleep(Duration::from_secs(10)).await;
-                continue;
-            }
-        };
-
-        // Si el valor raíz ES un string (doble escape), parsearlo de nuevo
-        let dll_json = if let Some(s) = dll_json.as_str() {
-            match serde_json::from_str::<serde_json::Value>(s) {
-                Ok(v) => v,
-                Err(e) => {
-                    eprintln!("❌ Error en segundo parse: {e}");
-                    sleep(Duration::from_secs(10)).await;
-                    continue;
-                }
-            }
-        } else {
-            dll_json
-        };
-
-        // 👇 AÑADE ESTO TEMPORALMENTE para ver la estructura real
-        println!(
-            "🔍 [DEBUG] Respuesta DLL completa:\n{}",
-            serde_json::to_string_pretty(&dll_json).unwrap_or_else(|_| dll_response_raw.clone())
-        );
-        // ─── 4. SI TENEMOS idseguimiento → ACTUALIZAR LEADS ─────────
-        if let (Some(id_seg), Some(id_camp)) = (idseguimiento, idcampana) {
-            println!("🔄 [AUTOCONNECT] Actualizando leads para seguimiento {id_seg}...");
-
-            let rows = extract_rows_from_backend(&dll_json);
-            println!("📦 [AUTOCONNECT] Filas obtenidas de DLL: {}", rows.len());
-
-            let sql_str = comando_value
-                .get("SQL")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let star = is_star_sql(sql_str);
-
-            let mut todos_leads: Vec<LeadRow> = rows
-                .iter()
-                .filter_map(|row| {
-                    if star {
-                        map_star_row(row)
-                    } else {
-                        map_quiter_row(row)
-                    }
-                })
-                .collect();
-
-            println!("📋 [AUTOCONNECT] Leads mapeados: {}", todos_leads.len());
-
-            // ─── Obtener config de la campaña (agrupar) ─────────────
-            let (agrupar, criterio) = match client
-                .get(&format!("{}/api/campana/{}/config", base_url, id_camp))
-                .send()
-                .await
-            {
-                Ok(resp) => match resp.json::<serde_json::Value>().await {
-                    Ok(json) => {
-                        let ag = json
-                            .get("agrupar")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false);
-                        let cr = json
-                            .get("criterioagrupar")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("cliente")
-                            .to_string();
-                        (ag, cr)
-                    }
-                    Err(_) => (false, "cliente".to_string()),
-                },
-                Err(_) => (false, "cliente".to_string()),
-            };
-
-            // ─── Deduplicar por matricula si agrupar = true ──────────
-            if agrupar {
-                let mut seen = std::collections::HashSet::new();
-                todos_leads.retain(|lead| {
-                    let key = lead
-                        .matricula
-                        .clone()
-                        .or_else(|| lead.numorden.clone())
-                        .unwrap_or_default()
-                        .to_uppercase();
-                    if key.is_empty() {
-                        return true;
-                    }
-                    seen.insert(key)
-                });
-                println!(
-                    "🔄 [AUTOCONNECT] Tras deduplicación: {} leads únicos",
-                    todos_leads.len()
-                );
-            }
-
-            if !todos_leads.is_empty() {
-                let bulk_payload = BulkInsertPayload {
-                    id_seguimiento: id_seg,
-                    registros: todos_leads,
-                };
-
-                match client
-                    .post(&format!("{}/programacionseguimiento/bulk", base_url))
-                    .json(&bulk_payload)
-                    .send()
-                    .await
-                {
-                    Ok(resp) if resp.status().is_success() => {
-                        println!("✅ [AUTOCONNECT] Bulk insert OK");
-                    }
-                    Ok(resp) => {
-                        eprintln!(
-                            "⚠️  [AUTOCONNECT] Bulk insert devolvió {}: {:?}",
-                            resp.status(),
-                            resp.text().await
-                        );
-                    }
-                    Err(e) => {
-                        eprintln!("❌ [AUTOCONNECT] Error en bulk insert: {e}");
-                    }
-                }
-            }
-        }
-        // ─── 5. REPORTAR RESULTADO DE LA TAREA ──────────────────────
-        let _ = client
-            .post(&format!("{}/api/autoconnect/result", base_url))
-            .json(&serde_json::json!({
-                "idtarea": idtarea,
-                "data": dll_response_raw
-            }))
-            .send()
-            .await;
-
-        println!("✅ [AUTOCONNECT] Tarea {idtarea} completada");
-
-        sleep(Duration::from_secs(10)).await;
-    }
-}
-     */
-
 // ============ MAIN TAURI ============
 #[tokio::main]
 async fn main() {
@@ -1751,11 +1573,11 @@ async fn main() {
 
             let backend_clone = python_backend.clone();
             
-            /*
+            
             tauri::async_runtime::spawn(async move {
-                loop_autoconnect(backend_clone).await;
+                loop_leads_sync(backend_clone).await;
             });
-             */
+             
 
             // Llamada inicial a cargarDocOrdenes
             let backend_for_call = python_backend.clone();

@@ -39,6 +39,9 @@ export default function App() {
   const [usuarioQac, setUsuarioQac] = useState("");
   const [contrasenaQac, setContrasenaQac] = useState("");
 
+  // API URL
+  const [apiUrl, setApiUrl] = useState("");
+
   const [SECRET_KEY, setKey] = useState("");
   useEffect(() => {
     invoke("obtener_contrasena_encrypt").then(setKey).catch(console.error);
@@ -113,6 +116,8 @@ export default function App() {
           setUseQac(!!cfg.useqac);
           setUsuarioQac(cfg.usuarioqac || "");
           setContrasenaQac(cfg.contrasenaqac || "");
+
+          setApiUrl(cfg.apiurl || "");
         })
         .catch((e) => console.error("Leer config:", e));
     }
@@ -140,6 +145,8 @@ export default function App() {
         useqac: useQac ? 1 : 0,
         usuarioqac: usuarioQac,
         contrasenaqac: contrasenaQac,
+
+        apiurl: apiUrl,
 
         key: SECRET_KEY,
       });
@@ -234,6 +241,13 @@ export default function App() {
                 onClick={() => setActiveTab("qac")}
               >
                 QAC
+              </button>
+              <button
+              type="button"
+              className={activeTab === "api" ? "tab active" : "tab"}
+              onClick={() => setActiveTab("api")}
+              >
+                API
               </button>
             </div>
             {activeTab === "dms" && (
@@ -406,7 +420,20 @@ export default function App() {
                 </div>
               </>
             )}
-
+            {activeTab === "api" && (
+              <>
+                <div className="form-group">
+                  <label htmlFor="apiurl">Api URL</label>
+                  <input
+                    id="apiurl"
+                    type="text"
+                    value={apiUrl}
+                    onChange={(e) => setApiUrl(e.target.value)}
+                    className="input"
+                  />
+                </div>
+              </>
+            )}
             <div className="acciones-form">
               <button type="submit" className="btn btn-primary">
                 Guardar

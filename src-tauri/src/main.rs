@@ -1,6 +1,6 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 // LA LINEA SIGUIENTE SI ESTA COMENTADA APARECE LA CONSOLA
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+//#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use aes_gcm::AeadCore;
 use aes_gcm::{
@@ -153,6 +153,8 @@ struct ConfigRow {
     usuarioqac: String,
     contrasenaqac: String,
 
+    // API
+    apiurl: String,
 }
 
 #[tauri::command]
@@ -175,6 +177,9 @@ fn guardar_config_sqlite(
     useqac: i64,
     usuarioqac: String,
     contrasenaqac: String,
+
+    // API
+    apiurl: String,
 
     key: String,
 ) -> Result<(), String> {
@@ -209,9 +214,10 @@ fn guardar_config_sqlite(
                 qaePort,
                 useQAC,
                 qac_user,
-                qac_password
+                qac_password,
+                apiurl
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 server,
                 username_enc,
@@ -226,7 +232,8 @@ fn guardar_config_sqlite(
                 qaeport,
                 useqac,
                 usuarioqac,
-                contrasenaqac
+                contrasenaqac,
+                apiurl
             ],
         )
         .map_err(|e| e.to_string())?;
@@ -246,7 +253,8 @@ fn guardar_config_sqlite(
                 qaePort      = ?11,
                 useQAC       = ?12,
                 qac_user     = ?13,
-                qac_password = ?14",
+                qac_password = ?14,
+                apiurl       = ?15",
             params![
                 server,
                 username_enc,
@@ -261,7 +269,8 @@ fn guardar_config_sqlite(
                 qaeport,
                 useqac,
                 usuarioqac,
-                contrasenaqac
+                contrasenaqac,
+                apiurl
             ],
         )
         .map_err(|e| e.to_string())?;
@@ -290,7 +299,8 @@ fn obtener_config_sqlite(key: String) -> Result<ConfigRow, String> {
             qaePort,
             useQAC,
             qac_user,
-            qac_password
+            qac_password,
+            apiurl
         FROM ConfigApp
         LIMIT 1",
         )
@@ -312,6 +322,7 @@ fn obtener_config_sqlite(key: String) -> Result<ConfigRow, String> {
             row.get::<_, i64>(11)?,
             row.get::<_, String>(12)?,
             row.get::<_, String>(13)?,
+            row.get::<_, String>(14)?,
         ))
     });
 
@@ -330,7 +341,8 @@ fn obtener_config_sqlite(key: String) -> Result<ConfigRow, String> {
             qaeport,
             useqac,
             usuarioqac,
-            contrasenaqac
+            contrasenaqac,
+            apiurl,
         )) => {
             let qaeserver = qaeserver.unwrap_or_default();
             let qaeport = qaeport.unwrap_or_default();
@@ -359,7 +371,8 @@ fn obtener_config_sqlite(key: String) -> Result<ConfigRow, String> {
                 qaeport,
                 useqac,
                 usuarioqac,
-                contrasenaqac
+                contrasenaqac,
+                apiurl,
             })
         }
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(ConfigRow {
@@ -377,6 +390,7 @@ fn obtener_config_sqlite(key: String) -> Result<ConfigRow, String> {
             useqac: 0,
             usuarioqac: "".into(),
             contrasenaqac: "".into(),
+            apiurl: "".into(),
         }),
         Err(e) => Err(e.to_string()),
     }
@@ -955,48 +969,135 @@ fn val_to_string(v: Option<&serde_json::Value>) -> Option<String> {
         }
     })
 }
-
 fn map_array_to_lead(r: &Vec<serde_json::Value>) -> Option<serde_json::Value> {
     if r.len() < 2 {
         return None;
     }
 
-    // ✅ Formato 16 columnas (normalizado C1…C16)
-    if r.len() == 16 {
-        // Teléfono: coger el primero no vacío entre r[4], r[3], r[2]
-        let telefono = [r.get(4), r.get(3), r.get(2)]
-            .iter()
-            .filter_map(|v| *v)
-            .find(|v| !v.as_str().unwrap_or("").trim().is_empty())
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+    // Helper teléfono (igual que JS)
+    let telefono = [r.get(4), r.get(3), r.get(2)]
+        .iter()
+        .filter_map(|v| *v)
+        .find(|v| !v.as_str().unwrap_or("").trim().is_empty())
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
+    // =====================================================
+    // 🟩 C1…C16 normalizado
+    // =====================================================
+    if r.len() == 16 {
         return Some(serde_json::json!({
             "codicliente":        val_to_string(r.get(0)),
             "nombrecliente":      val_to_string(r.get(1)),
-            "nombrepropiocliente": val_to_string(r.get(14)), // ✅ r[14]
+            "nombrepropiocliente": val_to_string(r.get(14)),
             "telefonocliente":    telefono,
-            "emailcliente":       val_to_string(r.get(5)),   // ✅ r[5]
-            "marcavehiculo":      val_to_string(r.get(6)),
-            "modelovehiculo":     val_to_string(r.get(7)),
-            "matricula":          val_to_string(r.get(9)),   // ✅ r[9]
-            "fechaor":            val_to_string(r.get(12)),  // ✅ r[12] = "01/02/25"
-            "numorden":           val_to_string(r.get(13)),  // ✅ r[13] = "1608811"
+            "emailcliente":       val_to_string(r.get(5)),
+
+            // ✅ FIX IMPORTANTE (como JS)
+            "marcavehiculo":      val_to_string(r.get(7)),
+            "modelovehiculo":     val_to_string(r.get(8)),
+            "matricula":          val_to_string(r.get(9)),
+
+            "kmactuales":         val_to_string(r.get(11)),
+            "fechaor":            val_to_string(r.get(12)),
+            "numorden":           val_to_string(r.get(13)),
+            "base_or":            val_to_string(r.get(15))
         }));
     }
 
-    // Formato genérico (fallback para otras longitudes)
-    Some(serde_json::json!({
-        "codicliente":     val_to_string(r.get(0)),
-        "nombrecliente":   val_to_string(r.get(1)),
-        "telefonocliente": val_to_string(r.get(3)),
-        "emailcliente":    val_to_string(r.get(4)),
-        "marcavehiculo":   val_to_string(r.get(6)),
-        "modelovehiculo":  val_to_string(r.get(7)),
-        "matricula":       val_to_string(r.get(8)),
-        "fechaor":         val_to_string(r.get(11)),
-        "numorden":        val_to_string(r.get(12))
-    }))
+    // =====================================================
+    // 🟦 FTSOPT (*)
+    // =====================================================
+    if r.len() == 15 {
+        return Some(serde_json::json!({
+            "codicliente":        val_to_string(r.get(0)),
+            "nombrecliente":      val_to_string(r.get(1)),
+            "nombrepropiocliente": val_to_string(r.get(13)),
+            "telefonocliente":    r.get(3).and_then(|v| v.as_str()).map(|s| s.to_string())
+                                      .or_else(|| r.get(2).and_then(|v| v.as_str()).map(|s| s.to_string())),
+            "emailcliente":       serde_json::Value::Null,
+
+            "marcavehiculo":      val_to_string(r.get(6)),
+            "modelovehiculo":     val_to_string(r.get(7)),
+            "matricula":          val_to_string(r.get(8)),
+
+            "kmactuales":         val_to_string(r.get(10)),
+            "fechaor":            val_to_string(r.get(11)),
+            "numorden":           val_to_string(r.get(12)),
+            "base_or":            val_to_string(r.get(14))
+        }));
+    }
+
+    // =====================================================
+    // 🟨 FMVEHPT (*)
+    // =====================================================
+    if r.len() == 10 {
+        return Some(serde_json::json!({
+            "codicliente":        val_to_string(r.get(0)),
+            "nombrecliente":      val_to_string(r.get(1)),
+            "nombrepropiocliente": val_to_string(r.get(1)),
+            "telefonocliente":    r.get(3).and_then(|v| v.as_str()).map(|s| s.to_string())
+                                      .or_else(|| r.get(2).and_then(|v| v.as_str()).map(|s| s.to_string())),
+            "emailcliente":       serde_json::Value::Null,
+
+            "marcavehiculo":      val_to_string(r.get(6)),
+            "modelovehiculo":     serde_json::Value::Null,
+            "matricula":          val_to_string(r.get(8)),
+
+            "kmactuales":         serde_json::Value::Null,
+            "fechaor":            serde_json::Value::Null,
+            "numorden":           serde_json::Value::Null,
+            "base_or":            serde_json::Value::Null
+        }));
+    }
+
+    // =====================================================
+    // 🟪 FMCUCG + FMVEHPT (*)
+    // =====================================================
+    if r.len() == 11 {
+        return Some(serde_json::json!({
+            "codicliente":        val_to_string(r.get(0)),
+            "nombrecliente":      val_to_string(r.get(1)),
+            "nombrepropiocliente": val_to_string(r.get(10)),
+            "telefonocliente":    r.get(3).and_then(|v| v.as_str()).map(|s| s.to_string())
+                                      .or_else(|| r.get(2).and_then(|v| v.as_str()).map(|s| s.to_string())),
+            "emailcliente":       val_to_string(r.get(4)),
+
+            "marcavehiculo":      val_to_string(r.get(6)),
+            "modelovehiculo":     serde_json::Value::Null,
+            "matricula":          val_to_string(r.get(8)),
+
+            "kmactuales":         serde_json::Value::Null,
+            "fechaor":            serde_json::Value::Null,
+            "numorden":           serde_json::Value::Null,
+            "base_or":            serde_json::Value::Null
+        }));
+    }
+
+    // =====================================================
+    // 🟫 FMCUCG SOLO
+    // =====================================================
+    if r.len() >= 5 && r.len() <= 7 {
+        return Some(serde_json::json!({
+            "codicliente":        val_to_string(r.get(0)),
+            "nombrecliente":      val_to_string(r.get(1)),
+            "nombrepropiocliente": val_to_string(r.get(1)),
+            "telefonocliente":    r.get(2).and_then(|v| v.as_str()).map(|s| s.to_string())
+                                      .or_else(|| r.get(3).and_then(|v| v.as_str()).map(|s| s.to_string())),
+            "emailcliente":       val_to_string(r.get(4)),
+
+            "marcavehiculo":      serde_json::Value::Null,
+            "modelovehiculo":     serde_json::Value::Null,
+            "matricula":          serde_json::Value::Null,
+
+            "kmactuales":         serde_json::Value::Null,
+            "fechaor":            serde_json::Value::Null,
+            "numorden":           serde_json::Value::Null,
+            "base_or":            serde_json::Value::Null
+        }));
+    }
+
+    None
 }
 
 async fn loop_leads_sync(backend: Arc<Mutex<PythonBackend>>) {
@@ -1005,22 +1106,40 @@ async fn loop_leads_sync(backend: Arc<Mutex<PythonBackend>>) {
     loop {
         println!("🔄 [AUTO] Buscando trabajos de leads...");
 
-        let resp = client
-            .get("https://3e76-109-107-116-142.ngrok-free.app/autoconnect/pending-leads")
-            .send()
-            .await;
+        // Leer apiurl desde la configuración
+        let api_base_url = match obtener_config_sqlite(ENCRYPT_PASSWORD.to_string()) {
+            Ok(cfg) if !cfg.apiurl.trim().is_empty() => {
+                cfg.apiurl.trim().trim_end_matches('/').to_string()
+            }
+            Ok(_) => {
+                println!("❌ [AUTO] apiurl vacía en la configuración");
+                sleep(Duration::from_secs(60)).await;
+                continue;
+            }
+            Err(e) => {
+                println!("❌ [AUTO] Error obteniendo configuración: {}", e);
+                sleep(Duration::from_secs(60)).await;
+                continue;
+            }
+        };
+
+        println!("🌐 [AUTO] Usando API URL: {}", api_base_url);
+
+        let pending_url = format!("{}/pending-leads", api_base_url);
+        println!("📥 [AUTO] GET {}", pending_url);
+
+        let resp = client.get(&pending_url).send().await;
 
         if let Ok(r) = resp {
             if let Ok(jobs) = r.json::<Vec<serde_json::Value>>().await {
-
                 for job in jobs {
                     let id_seguimiento = job["idSeguimiento"].as_i64().unwrap();
                     let sql = job["sql"].as_str().unwrap();
 
                     println!("🚀 Ejecutando seguimiento {}", id_seguimiento);
                     println!("🧠 SQL enviado al backend:");
-println!("{}", sql);
-println!("----------------------------------------");
+                    println!("{}", sql);
+                    println!("----------------------------------------");
 
                     let is_star = sql.to_lowercase().contains("tbl_productionorderregistry");
 
@@ -1031,24 +1150,23 @@ println!("----------------------------------------");
                         "almacen": ""
                     });
 
-                   let response = {
-    let mut bk = backend.lock().unwrap();
-    bk.send_command(&comando.to_string())
-};
+                    let response = {
+                        let mut bk = backend.lock().unwrap();
+                        bk.send_command(&comando.to_string())
+                    };
 
-println!("📡 RAW RESPONSE DLL:\n{}", response);
+                    println!("📡 RAW RESPONSE DLL:\n{}", response);
 
                     let parsed: serde_json::Value = match serde_json::from_str(&response) {
-    Ok(serde_json::Value::String(inner)) => {
-        // 🔥 segundo parseo
-        serde_json::from_str(&inner).unwrap_or_default()
-    }
-    Ok(val) => val,
-    Err(e) => {
-        println!("❌ Error parseando respuesta: {}", e);
-        serde_json::json!({})
-    }
-};
+                        Ok(serde_json::Value::String(inner)) => {
+                            serde_json::from_str(&inner).unwrap_or_default()
+                        }
+                        Ok(val) => val,
+                        Err(e) => {
+                            println!("❌ Error parseando respuesta: {}", e);
+                            serde_json::json!({})
+                        }
+                    };
 
                     let rows = extract_rows_from_backend(&parsed);
 
@@ -1056,18 +1174,20 @@ println!("📡 RAW RESPONSE DLL:\n{}", response);
 
                     for r in rows {
                         if let Some(arr) = r.as_array() {
-                            let lead = map_array_to_lead(arr); // 👇 te lo dejo abajo
-                            if lead.is_some() {
-                                leads.push(serde_json::json!(lead.unwrap()));
+                            let lead = map_array_to_lead(arr);
+                            if let Some(lead_ok) = lead {
+                                leads.push(lead_ok);
                             }
                         }
                     }
 
                     println!("📦 Leads obtenidos: {}", leads.len());
 
-                    // 🚀 enviar a backend
+                    let update_url = format!("{}/actualizar-leads", api_base_url);
+                    println!("📤 [AUTO] POST {}", update_url);
+
                     let _ = client
-                        .post("https://3e76-109-107-116-142.ngrok-free.app/autoconnect/actualizar-leads")
+                        .post(&update_url)
                         .json(&serde_json::json!({
                             "idSeguimiento": id_seguimiento,
                             "registros": leads
@@ -1204,7 +1324,8 @@ async fn get_config_autoconnect() -> impl IntoResponse {
                 "usuarioqae": cfg.usuarioqae,
                 "contrasenaqae": cfg.contrasenaqae,
                 "qaeServer": cfg.qaeserver,
-                "qaePort": cfg.qaeport
+                "qaePort": cfg.qaeport,
+                "apiurl": cfg.apiurl
             })),
         ),
         Err(e) => (
@@ -1237,7 +1358,6 @@ fn qae_activado_sync() -> Result<bool, String> {
         .map_err(|e| e.to_string())?;
     Ok(valor == 1)
 }
-
 
 async fn subir_doc_ordenes_handler(
     axum::extract::State(backend): axum::extract::State<Arc<Mutex<PythonBackend>>>,
@@ -1572,12 +1692,10 @@ async fn main() {
             });
 
             let backend_clone = python_backend.clone();
-            
-            
+
             tauri::async_runtime::spawn(async move {
                 loop_leads_sync(backend_clone).await;
             });
-             
 
             // Llamada inicial a cargarDocOrdenes
             let backend_for_call = python_backend.clone();
